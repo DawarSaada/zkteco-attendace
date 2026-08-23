@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// Initialize Supabase Client with Service Role Key to bypass RLS for data insertion
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseKey);
+// Supabase client is created per-request to avoid build-time env errors
+function getSupabase() {
+    return createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+}
 
 // Shared security check
 function isAuthorized(request: Request) {
@@ -32,6 +35,7 @@ export async function POST(request: Request) {
         return new NextResponse("Unauthorized\n", { status: 401 });
     }
 
+    const supabase = getSupabase();
     const { searchParams } = new URL(request.url);
     const SN = searchParams.get('SN');
     const table = searchParams.get('table');

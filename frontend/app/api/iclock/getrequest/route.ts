@@ -1,9 +1,13 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseKey);
+// Supabase client is created per-request to avoid build-time env errors
+function getSupabase() {
+    return createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+}
 
 // Shared security check
 function isAuthorized(request: Request) {
@@ -20,6 +24,7 @@ export async function GET(request: Request) {
         return new NextResponse("Unauthorized\n", { status: 401 });
     }
 
+    const supabase = getSupabase();
     const { searchParams } = new URL(request.url);
     const SN = searchParams.get('SN');
     
@@ -30,7 +35,7 @@ export async function GET(request: Request) {
         .from('device_commands')
         .select('*')
         .eq('sn', SN)
-        .eq('status', 'PENDING')
+        .eq('status', 'pending')
         .order('created_at', { ascending: true });
 
     if (!commands || commands.length === 0) {
@@ -42,17 +47,15 @@ export async function GET(request: Request) {
 
     // Format commands for ADMS: C:<Command ID>:<Command String>
     commands.forEach((cmd, index) => {
-        // Use the database row ID or just sequential index as Command ID
-        // The device will echo this ID back in the POST response if we supported it.
         const cmdId = index + 1; 
-        responseString += `C:${cmdId}:${cmd.command_str}\n`;
+        responseString += `C:${cmdId}:${cmd.command}\n`;
         executedIds.push(cmd.id);
     });
 
     // Mark as executed
     await supabase
         .from('device_commands')
-        .update({ status: 'EXECUTED', executed_at: new Date().toISOString() })
+        .update({ status: 'executed' })
         .in('id', executedIds);
 
     return new NextResponse(responseString || "OK\n", { status: 200 });
