@@ -227,28 +227,42 @@ export default function ReportsPage() {
                     <thead className="bg-gray-50 border-b border-gray-200">
                         <tr>
                             <th className="px-6 py-4 text-sm font-medium text-gray-500">Employee</th>
-                            <th className="px-6 py-4 text-sm font-medium text-gray-500">Department</th>
                             <th className="px-6 py-4 text-sm font-medium text-gray-500">Date</th>
+                            <th className="px-6 py-4 text-sm font-medium text-gray-500">Scheduled Shift</th>
                             <th className="px-6 py-4 text-sm font-medium text-gray-500">Check In</th>
                             <th className="px-6 py-4 text-sm font-medium text-gray-500">Check Out</th>
-                            <th className="px-6 py-4 text-sm font-medium text-gray-500">Total Punches</th>
+                            <th className="px-6 py-4 text-sm font-medium text-gray-500">Total Hours</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                        {reports.map((row, idx) => (
-                            <tr key={idx}>
-                                <td className="px-6 py-4 font-medium">{row.full_name || row.pin}</td>
-                                <td className="px-6 py-4 text-gray-500">{row.department || '-'}</td>
-                                <td className="px-6 py-4 text-gray-500">{row.punch_date}</td>
-                                <td className="px-6 py-4 text-green-600 font-medium">
-                                    {row.check_in ? new Date(row.check_in).toLocaleTimeString() : '-'}
-                                </td>
-                                <td className="px-6 py-4 text-blue-600 font-medium">
-                                    {row.check_out ? new Date(row.check_out).toLocaleTimeString() : '-'}
-                                </td>
-                                <td className="px-6 py-4">{row.total_punches}</td>
-                            </tr>
-                        ))}
+                        {reports.map((row, idx) => {
+                            let totalHours = '-';
+                            if (row.check_in && row.check_out && row.check_in !== row.check_out) {
+                                const mins = Math.floor((new Date(row.check_out).getTime() - new Date(row.check_in).getTime()) / 60000);
+                                if (mins > 0) {
+                                    totalHours = `${Math.floor(mins / 60)}h ${mins % 60}m`;
+                                }
+                            }
+                            
+                            const shiftStr = (row.shift_start && row.shift_end) 
+                                ? `${row.shift_start.substring(0,5)} - ${row.shift_end.substring(0,5)}` 
+                                : 'No Shift';
+
+                            return (
+                                <tr key={idx}>
+                                    <td className="px-6 py-4 font-medium">{row.full_name || row.pin}</td>
+                                    <td className="px-6 py-4 text-gray-500">{row.punch_date}</td>
+                                    <td className="px-6 py-4 text-gray-500 font-mono text-sm">{shiftStr}</td>
+                                    <td className="px-6 py-4 text-green-600 font-medium">
+                                        {row.check_in ? new Date(row.check_in).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '-'}
+                                    </td>
+                                    <td className="px-6 py-4 text-blue-600 font-medium">
+                                        {row.check_out ? new Date(row.check_out).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '-'}
+                                    </td>
+                                    <td className="px-6 py-4 font-medium">{totalHours}</td>
+                                </tr>
+                            );
+                        })}
                         {reports.length === 0 && !errorMsg && (
                             <tr>
                                 <td colSpan={6} className="px-6 py-8 text-center text-gray-500">No attendance records found for this period.</td>
