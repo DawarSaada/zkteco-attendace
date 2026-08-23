@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 
 export default function ReportsPage() {
     const [rangeType, setRangeType] = useState('daily');
@@ -59,8 +59,8 @@ export default function ReportsPage() {
 
         reports.forEach(row => {
             const rowData = [
-                row.employees?.full_name || row.pin,
-                row.employees?.department || '-',
+                row.full_name || row.pin,
+                row.department || '-',
                 row.punch_date,
                 row.check_in ? new Date(row.check_in).toLocaleTimeString() : '-',
                 row.check_out ? new Date(row.check_out).toLocaleTimeString() : '-',
@@ -69,7 +69,7 @@ export default function ReportsPage() {
             tableRows.push(rowData);
         });
 
-        (doc as any).autoTable({
+        autoTable(doc, {
             head: [tableColumn],
             body: tableRows,
             startY: 20,
@@ -148,8 +148,8 @@ export default function ReportsPage() {
                     <tbody className="divide-y divide-gray-100">
                         {reports.map((row, idx) => (
                             <tr key={idx}>
-                                <td className="px-6 py-4 font-medium">{row.employees?.full_name || row.pin}</td>
-                                <td className="px-6 py-4 text-gray-500">{row.employees?.department || '-'}</td>
+                                <td className="px-6 py-4 font-medium">{row.full_name || row.pin}</td>
+                                <td className="px-6 py-4 text-gray-500">{row.department || '-'}</td>
                                 <td className="px-6 py-4 text-gray-500">{row.punch_date}</td>
                                 <td className="px-6 py-4 text-green-600 font-medium">
                                     {row.check_in ? new Date(row.check_in).toLocaleTimeString() : '-'}
