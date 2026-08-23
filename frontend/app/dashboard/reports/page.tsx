@@ -51,7 +51,7 @@ export default function ReportsPage() {
     };
 
     const handleExportPDF = () => {
-        const doc = new jsPDF();
+        const doc = new jsPDF('landscape'); // Landscape might be better for many columns
         
         if (reports.length === 0) {
             doc.text(`No attendance records found for ${startDate} to ${endDate}`, 14, 15);
@@ -59,14 +59,13 @@ export default function ReportsPage() {
             return;
         }
 
-        // Group reports by employee PIN
         const groupedReports = reports.reduce((acc, row) => {
             const empKey = row.pin;
             if (!acc[empKey]) {
                 acc[empKey] = {
                     pin: row.pin,
                     name: row.full_name || row.pin,
-                    department: row.department || '-',
+                    department: row.department || '',
                     records: []
                 };
             }
@@ -81,30 +80,87 @@ export default function ReportsPage() {
                 doc.addPage();
             }
 
-            // Print Header
-            doc.setFontSize(16);
-            doc.text(`Total Time Card`, 14, 15);
-            
-            doc.setFontSize(11);
-            doc.text(`Date Range: ${startDate} to ${endDate}`, 14, 25);
-            doc.text(`Emp No: ${emp.pin}`, 14, 32);
-            doc.text(`Employee Name: ${emp.name}`, 14, 39);
-            doc.text(`Department: ${emp.department}`, 14, 46);
+            doc.setFontSize(10);
+            doc.text(`Start Date ${startDate} End Date ${endDate}`, 14, 15);
+            // Example: Employee ID: 1,First Name: Parvez,Department: القسم
+            const deptString = emp.department ? `,Department: ${emp.department}` : '';
+            doc.text(`Employee ID: ${emp.pin},First Name: ${emp.name}${deptString}`, 14, 22);
 
-            const tableColumn = ["Date", "Check In", "Check Out", "Punches"];
-            const tableRows = emp.records.map((row: any) => [
-                row.punch_date,
-                row.check_in ? new Date(row.check_in).toLocaleTimeString() : '-',
-                row.check_out ? new Date(row.check_out).toLocaleTimeString() : '-',
-                row.total_punches
+            const tableColumn = [
+                "Date", "Weekday", "Timetable", "Check In", "Check Out", 
+                "Normal", "Break", "Work day", "Clock In", "Clock Out", 
+                "Total Hours", "Work Hours", "Break Out", "Break In"
+            ];
+            
+            let totalMinutesAll = 0;
+
+            const tableRows = emp.records.map((row: any) => {
+                const pDate = new Date(row.punch_date);
+                const weekday = format(pDate, 'EEEE');
+                
+                let clockIn = '';
+                let clockOut = '';
+                let totalHours = '';
+
+                if (row.check_in) {
+                    clockIn = format(new Date(row.check_in), 'HH:mm');
+                }
+                
+                if (row.check_out && row.check_in !== row.check_out) {
+                    clockOut = format(new Date(row.check_out), 'HH:mm');
+                    const cIn = new Date(row.check_in).getTime();
+                    const cOut = new Date(row.check_out).getTime();
+                    const mins = Math.floor((cOut - cIn) / 60000);
+                    
+                    if (mins > 0) {
+                        totalMinutesAll += mins;
+                        const hrs = Math.floor(mins / 60);
+                        const remainingMins = mins % 60;
+                        totalHours = `${hrs.toString().padStart(2, '0')}:${remainingMins.toString().padStart(2, '0')}`;
+                    }
+                }
+
+                return [
+                    row.punch_date,
+                    weekday,
+                    '', // Timetable
+                    '00:00', // Check In schedule
+                    '00:00', // Check Out schedule
+                    '', '', // Normal, Break
+                    '1.0', // Work day
+                    clockIn,
+                    clockOut,
+                    totalHours,
+                    '12:00', // Work Hours hardcoded as in screenshot
+                    '', '' // Break Out, Break In
+                ];
+            });
+
+            // Statistics Row
+            const totalHrs = Math.floor(totalMinutesAll / 60);
+            const totalMins = totalMinutesAll % 60;
+            const formattedTotal = `${totalHrs.toString().padStart(2, '0')}:${totalMins.toString().padStart(2, '0')}`;
+            
+            tableRows.push([
+                'Statistics', '', '', '', '', '', '', '', '', '', formattedTotal, '', '', ''
             ]);
 
             autoTable(doc, {
                 head: [tableColumn],
                 body: tableRows,
-                startY: 52,
+                startY: 28,
                 theme: 'grid',
-                headStyles: { fillColor: [41, 128, 185] }
+                styles: { 
+                    fontSize: 8,
+                    lineColor: [0, 0, 0],
+                    lineWidth: 0.1,
+                    textColor: [0, 0, 0]
+                },
+                headStyles: { 
+                    fillColor: [255, 255, 255], 
+                    textColor: [0, 0, 0],
+                    fontStyle: 'normal'
+                }
             });
         });
 

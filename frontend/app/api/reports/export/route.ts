@@ -19,13 +19,56 @@ export async function GET(request: Request) {
 
     const groupedData = data.reduce((acc: any, row: any) => {
         const empName = row.full_name || row.pin;
-        if (!acc[empName]) acc[empName] = [];
+        if (!acc[empName]) {
+            acc[empName] = {
+                pin: row.pin,
+                name: empName,
+                department: row.department || '',
+                records: [],
+                totalMinutes: 0
+            };
+        }
         
-        acc[empName].push({
+        const pDate = new Date(row.punch_date);
+        const weekday = pDate.toLocaleDateString('en-US', { weekday: 'long' });
+        
+        let clockIn = '';
+        let clockOut = '';
+        let totalHours = '';
+
+        if (row.check_in) {
+            clockIn = new Date(row.check_in).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
+        }
+        
+        if (row.check_out && row.check_in !== row.check_out) {
+            clockOut = new Date(row.check_out).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
+            const cIn = new Date(row.check_in).getTime();
+            const cOut = new Date(row.check_out).getTime();
+            const mins = Math.floor((cOut - cIn) / 60000);
+            
+            if (mins > 0) {
+                acc[empName].totalMinutes += mins;
+                const hrs = Math.floor(mins / 60);
+                const remainingMins = mins % 60;
+                totalHours = `${hrs.toString().padStart(2, '0')}:${remainingMins.toString().padStart(2, '0')}`;
+            }
+        }
+        
+        acc[empName].records.push({
             'Date': row.punch_date,
-            'Check In': row.check_in ? new Date(row.check_in).toLocaleTimeString() : '-',
-            'Check Out': row.check_out ? new Date(row.check_out).toLocaleTimeString() : '-',
-            'Total Punches': row.total_punches
+            'Weekday': weekday,
+            'Timetable': '',
+            'Check In': '00:00',
+            'Check Out': '00:00',
+            'Normal': '',
+            'Break': '',
+            'Work day': '1.0',
+            'Clock In': clockIn,
+            'Clock Out': clockOut,
+            'Total Hours': totalHours,
+            'Work Hours': '12:00',
+            'Break Out': '',
+            'Break In': ''
         });
         
         return acc;
@@ -33,10 +76,33 @@ export async function GET(request: Request) {
 
     const workbook = XLSX.utils.book_new();
 
-    Object.entries(groupedData).forEach(([empName, records]) => {
-        // Excel sheet names cannot exceed 31 characters and shouldn't have illegal chars
+    Object.entries(groupedData).forEach(([empName, empInfo]: [string, any]) => {
         const safeSheetName = String(empName).substring(0, 31).replace(/[\\/?*[\]]/g, '');
-        const worksheet = XLSX.utils.json_to_sheet(records as any[]);
+        
+        // Add Header rows
+        const deptString = empInfo.department ? `,Department: ${empInfo.department}` : '';
+        const headerData = [
+            [`Start Date ${startDate} End Date ${endDate}`],
+            [`Employee ID: ${empInfo.pin},First Name: ${empInfo.name}${deptString}`],
+            [] // Empty row before table
+        ];
+
+        // Calculate statistics
+        const totalHrs = Math.floor(empInfo.totalMinutes / 60);
+        const totalMins = empInfo.totalMinutes % 60;
+        const formattedTotal = `${totalHrs.toString().padStart(2, '0')}:${totalMins.toString().padStart(2, '0')}`;
+        
+        const recordsWithStats = [
+            ...empInfo.records,
+            {
+                'Date': 'Statistics',
+                'Total Hours': formattedTotal
+            }
+        ];
+
+        const worksheet = XLSX.utils.json_to_sheet(recordsWithStats, { origin: "A4" });
+        XLSX.utils.sheet_add_aoa(worksheet, headerData, { origin: "A1" });
+        
         XLSX.utils.book_append_sheet(workbook, worksheet, safeSheetName || 'Unknown');
     });
 
