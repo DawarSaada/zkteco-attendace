@@ -73,23 +73,24 @@ export default function ReportsPage() {
         }
     }, [rangeType]);
 
-    useEffect(() => {
-        const fetchReports = async () => {
-            setErrorMsg('');
-            try {
-                const res = await fetch(`/api/reports/daily?start=${startDate}&end=${endDate}&pin=${filterPin}&branch=${filterBranch}`);
-                const data = await res.json();
-                if (res.ok) {
-                    setReports(Array.isArray(data) ? data : []);
-                } else {
-                    setReports([]);
-                    setErrorMsg(data.error || 'Failed to fetch reports.');
-                }
-            } catch (err: any) {
+    const fetchReports = async () => {
+        setErrorMsg('');
+        try {
+            const res = await fetch(`/api/reports/daily?start=${startDate}&end=${endDate}&pin=${filterPin}&branch=${filterBranch}`);
+            const data = await res.json();
+            if (res.ok) {
+                setReports(Array.isArray(data) ? data : []);
+            } else {
                 setReports([]);
-                setErrorMsg(err.message || 'Error occurred while fetching data.');
+                setErrorMsg(data.error || 'Failed to fetch reports.');
             }
-        };
+        } catch (err: any) {
+            setReports([]);
+            setErrorMsg(err.message || 'Error occurred while fetching data.');
+        }
+    };
+
+    useEffect(() => {
         fetchReports();
     }, [startDate, endDate, filterPin, filterBranch]);
 
