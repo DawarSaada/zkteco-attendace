@@ -72,14 +72,41 @@ app.post('/iclock/cdata', async (req, res) => {
                 }
             }
         }
+    } else if (table === 'USERINFO') {
+        const rawData = req.body;
+        const lines = typeof rawData === 'string' ? rawData.trim().split('\n') : [];
+        for (const line of lines) {
+            if (!line) continue;
+            // Format: PIN \t Name \t Password \t Card \t Privilege ...
+            const parts = line.split('\t');
+            if (parts.length >= 2) {
+                const pin = parts[0];
+                const name = parts[1] || `User ${pin}`;
+                
+                await supabase
+                    .from('employees')
+                    .upsert({ pin: pin, full_name: name }, { onConflict: 'pin' });
+            }
+        }
     }
 
     res.status(200).send("OK\n");
 });
 
 app.get('/iclock/getrequest', (req, res) => {
-    // Device checks for new commands
-    res.status(200).send("OK\n");
+    const { SN } = req.query;
+    console.log(`[ADMS GetRequest] SN: ${SN}`);
+    
+    // Queue commands to force the device to sync its local data to the server
+    // Format: C:<Command ID>:<Command String>
+    let commands = "";
+    
+    // Command 1: Request all new attendance logs
+    commands += "C:1:DATA QUERY ATTLOG\n";
+    // Command 2: Request all user information (names/pins)
+    commands += "C:2:DATA QUERY USERINFO\n";
+    
+    res.status(200).send(commands || "OK\n");
 });
 
 // -------------------------------------------------------------
