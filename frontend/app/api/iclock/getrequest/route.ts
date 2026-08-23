@@ -38,7 +38,7 @@ export async function GET(request: Request) {
     }
 
     let responseString = "";
-    const executedIds = [];
+    const executedIds: string[] = [];
 
     // Format commands for ADMS: C:<Command ID>:<Command String>
     commands.forEach((cmd, index) => {

@@ -100,7 +100,7 @@ export async function GET(request: Request) {
             }
         ];
 
-        const worksheet = XLSX.utils.json_to_sheet(recordsWithStats, { origin: "A4" });
+        const worksheet = (XLSX.utils.json_to_sheet as any)(recordsWithStats, { origin: "A4" });
         XLSX.utils.sheet_add_aoa(worksheet, headerData, { origin: "A1" });
         
         XLSX.utils.book_append_sheet(workbook, worksheet, safeSheetName || 'Unknown');

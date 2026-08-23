@@ -75,7 +75,7 @@ export default function ReportsPage() {
 
         const employees = Object.values(groupedReports);
 
-        employees.forEach((emp, index) => {
+        employees.forEach((emp: any, index) => {
             if (index > 0) {
                 doc.addPage();
             }
