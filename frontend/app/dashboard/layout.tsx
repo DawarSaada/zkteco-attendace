@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { LayoutDashboard, Activity, FileSpreadsheet, MonitorSmartphone } from 'lucide-react';
+import { LayoutDashboard, Activity, FileSpreadsheet, MonitorSmartphone, Users, LogOut } from 'lucide-react';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -22,11 +22,35 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <FileSpreadsheet size={20} />
             <span>Reports</span>
           </Link>
+          <Link href="/dashboard/employees" className="flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-gray-100 text-gray-700">
+            <Users size={20} />
+            <span>Employees</span>
+          </Link>
+          <Link href="/dashboard/shifts" className="flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-gray-100 text-gray-700">
+            <FileSpreadsheet size={20} />
+            <span>Shifts</span>
+          </Link>
           <Link href="/dashboard/devices" className="flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-gray-100 text-gray-700">
             <MonitorSmartphone size={20} />
             <span>Devices</span>
           </Link>
         </nav>
+        
+        <div className="p-4 border-t border-gray-200">
+          <form action="/login/actions" method="POST">
+             <button 
+                formAction={async () => {
+                  "use server";
+                  const { logout } = await import('@/app/login/actions');
+                  await logout();
+                }}
+                className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-red-600 hover:bg-red-50 font-medium"
+              >
+                <LogOut size={20} />
+                <span>Sign Out</span>
+             </button>
+          </form>
+        </div>
       </aside>
 
       {/* Main Content */}

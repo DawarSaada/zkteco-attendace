@@ -33,21 +33,53 @@ CREATE TABLE IF NOT EXISTS public.attendance_logs (
     UNIQUE(pin, timestamp) -- Unique constraint to avoid duplicates
 );
 
--- Reporting SQL View
+CREATE TABLE public.shifts (
+    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    start_time TIME NOT NULL,
+    end_time TIME NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE public.employee_shifts (
+    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    pin VARCHAR(255) REFERENCES public.employees(pin) ON DELETE CASCADE,
+    shift_id UUID REFERENCES public.shifts(id) ON DELETE CASCADE,
+    UNIQUE(pin)
+);
+
+-- Reporting SQL View (Rewritten to support dynamic shifts)
 CREATE OR REPLACE VIEW public.daily_attendance_summary AS
 SELECT 
-  pin,
-  DATE(timestamp) as punch_date,
-  MIN(timestamp) as check_in,
-  MAX(timestamp) as check_out,
-  COUNT(*) as total_punches
-FROM public.attendance_logs
-GROUP BY pin, DATE(timestamp);
+  a.pin,
+  e.full_name,
+  e.department,
+  DATE(a.timestamp) as punch_date,
+  MIN(a.timestamp) as check_in,
+  MAX(a.timestamp) as check_out,
+  COUNT(*) as total_punches,
+  s.start_time as shift_start,
+  s.end_time as shift_end
+FROM public.attendance_logs a
+LEFT JOIN public.employees e ON a.pin = e.pin
+LEFT JOIN public.employee_shifts es ON e.pin = es.pin
+LEFT JOIN public.shifts s ON es.shift_id = s.id
+GROUP BY a.pin, e.full_name, e.department, DATE(a.timestamp), s.start_time, s.end_time;
+
+CREATE TABLE public.device_commands (
+    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    sn VARCHAR(255) REFERENCES public.devices(sn) ON DELETE CASCADE,
+    command_str TEXT NOT NULL,
+    status VARCHAR(50) DEFAULT 'PENDING',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    executed_at TIMESTAMPTZ
+);
 
 -- Enable RLS (Row Level Security)
 ALTER TABLE public.devices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.employees ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.attendance_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.device_commands ENABLE ROW LEVEL SECURITY;
 
 -- Allow all for development purposes. 
 -- In a real production setup with Supabase Auth, you'd restrict these policies.

@@ -124,8 +124,8 @@ export default function ReportsPage() {
                     row.punch_date,
                     weekday,
                     '', // Timetable
-                    '00:00', // Check In schedule
-                    '00:00', // Check Out schedule
+                    row.shift_start ? row.shift_start.substring(0, 5) : '00:00', // Check In schedule
+                    row.shift_end ? row.shift_end.substring(0, 5) : '00:00', // Check Out schedule
                     '', '', // Normal, Break
                     '1.0', // Work day
                     clockIn,

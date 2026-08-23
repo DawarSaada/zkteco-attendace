@@ -1,9 +1,10 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import { createClient } from '@/lib/supabase/client';
 
 export default function LiveMonitor() {
     const [logs, setLogs] = useState<any[]>([]);
+    const supabase = createClient();
 
     useEffect(() => {
         // Fetch initial logs
