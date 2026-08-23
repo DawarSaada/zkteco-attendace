@@ -5,14 +5,18 @@ import { createClient } from '@/lib/supabase/client';
 export default function DevicesPage() {
     const [devices, setDevices] = useState<any[]>([]);
     const [loadingAction, setLoadingAction] = useState<string>('');
+    const [editingDevice, setEditingDevice] = useState<any>(null);
+    const [editName, setEditName] = useState('');
+    const [editBranch, setEditBranch] = useState('');
     const supabase = createClient();
 
+    const fetchDevices = async () => {
+        const res = await fetch('/api/devices');
+        const data = await res.json();
+        setDevices(Array.isArray(data) ? data : []);
+    };
+
     useEffect(() => {
-        const fetchDevices = async () => {
-            const res = await fetch('/api/devices');
-            const data = await res.json();
-            setDevices(Array.isArray(data) ? data : []);
-        };
         fetchDevices();
 
         const channel = supabase
@@ -33,12 +37,33 @@ export default function DevicesPage() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ sn, command_str })
             });
-            alert('Command queued successfully. The device will execute it on its next heartbeat.');
+            alert('Command queued successfully.');
         } catch (err) {
             alert('Failed to queue command.');
         } finally {
             setLoadingAction('');
         }
+    };
+
+    const handleSaveEdit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        try {
+            await fetch(`/api/devices/${editingDevice.sn}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: editName, branch: editBranch })
+            });
+            setEditingDevice(null);
+            fetchDevices();
+        } catch (err) {
+            alert('Failed to update device.');
+        }
+    };
+
+    const openEditModal = (device: any) => {
+        setEditingDevice(device);
+        setEditName(device.name || '');
+        setEditBranch(device.branch || '');
     };
 
     return (
@@ -57,11 +82,20 @@ export default function DevicesPage() {
                                     <div>
                                         <h3 className="font-semibold text-lg">{device.name || 'Unnamed Device'}</h3>
                                         <p className="text-sm text-gray-500 font-mono mt-1">SN: {device.sn}</p>
+                                        <p className="text-sm text-blue-600 font-medium mt-1">Branch: {device.branch || 'Unassigned'}</p>
                                     </div>
-                                    <span className={`flex items-center space-x-1 text-sm font-medium px-2 py-1 rounded-full ${isOnline ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-                                        <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-green-600' : 'bg-red-500'}`}></span>
-                                        <span>{isOnline ? 'Online' : 'Offline'}</span>
-                                    </span>
+                                    <div className="flex flex-col items-end space-y-2">
+                                        <span className={`flex items-center space-x-1 text-sm font-medium px-2 py-1 rounded-full ${isOnline ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                                            <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-green-600' : 'bg-red-500'}`}></span>
+                                            <span>{isOnline ? 'Online' : 'Offline'}</span>
+                                        </span>
+                                        <button 
+                                            onClick={() => openEditModal(device)}
+                                            className="text-sm text-gray-500 hover:text-gray-800 underline"
+                                        >
+                                            Edit
+                                        </button>
+                                    </div>
                                 </div>
                                 <div className="text-sm text-gray-600 space-y-1">
                                     <p>IP Address: {device.ip_address || 'DHCP/Unknown'}</p>
@@ -94,6 +128,28 @@ export default function DevicesPage() {
                     </div>
                 )}
             </div>
+
+            {editingDevice && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                    <div className="bg-white rounded-xl p-6 max-w-md w-full shadow-2xl">
+                        <h3 className="text-xl font-bold mb-4">Edit Device</h3>
+                        <form onSubmit={handleSaveEdit} className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Device Name</label>
+                                <input type="text" value={editName} onChange={e => setEditName(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-blue-500 focus:border-blue-500" placeholder="e.g. Front Door Scanner" />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Branch</label>
+                                <input type="text" value={editBranch} onChange={e => setEditBranch(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-blue-500 focus:border-blue-500" placeholder="e.g. New York Office" />
+                            </div>
+                            <div className="flex space-x-3 pt-4">
+                                <button type="button" onClick={() => setEditingDevice(null)} className="flex-1 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200">Cancel</button>
+                                <button type="submit" className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">Save</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

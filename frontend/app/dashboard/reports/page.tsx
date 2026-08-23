@@ -8,6 +8,53 @@ export default function ReportsPage() {
     const [rangeType, setRangeType] = useState('daily');
     const [startDate, setStartDate] = useState(format(new Date(), 'yyyy-MM-dd'));
     const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+    const [employeesList, setEmployeesList] = useState<any[]>([]);
+    const [filterPin, setFilterPin] = useState('all');
+    const [filterBranch, setFilterBranch] = useState('all');
+
+    // Punches Modal State
+    const [selectedRowForPunches, setSelectedRowForPunches] = useState<any>(null);
+    const [rawPunches, setRawPunches] = useState<any[]>([]);
+    const [newPunchTime, setNewPunchTime] = useState('09:00');
+
+    const openPunchesModal = async (pin: string, date: string, name: string) => {
+        setSelectedRowForPunches({ pin, date, name });
+        fetchRawPunches(pin, date);
+    };
+
+    const fetchRawPunches = async (pin: string, date: string) => {
+        const res = await fetch(`/api/attendance/manual?pin=${pin}&date=${date}`);
+        const data = await res.json();
+        setRawPunches(data || []);
+    };
+
+    const deletePunch = async (timestamp: string) => {
+        if (!confirm('Are you sure you want to delete this punch?')) return;
+        await fetch('/api/attendance/manual', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'delete', pin: selectedRowForPunches.pin, timestamp })
+        });
+        fetchRawPunches(selectedRowForPunches.pin, selectedRowForPunches.date);
+        fetchReports(); // Refresh main table
+    };
+
+    const addManualPunch = async (e: React.FormEvent) => {
+        e.preventDefault();
+        // Construct full ISO timestamp using the selected date and new punch time
+        // Note: Using local time construction to match the selected date visually
+        const localDateTimeStr = `${selectedRowForPunches.date}T${newPunchTime}:00`;
+        const timestamp = new Date(localDateTimeStr).toISOString();
+
+        await fetch('/api/attendance/manual', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'add', pin: selectedRowForPunches.pin, timestamp })
+        });
+        fetchRawPunches(selectedRowForPunches.pin, selectedRowForPunches.date);
+        fetchReports();
+    };
+
     const [reports, setReports] = useState<any[]>([]);
     const [errorMsg, setErrorMsg] = useState('');
 
@@ -26,16 +73,6 @@ export default function ReportsPage() {
         }
     }, [rangeType]);
 
-    useEffect(() => {
-        const fetchReports = async () => {
-            setErrorMsg('');
-            try {
-                const res = await fetch(`/api/reports/daily?startDate=${startDate}&endDate=${endDate}`);
-                const data = await res.json();
-                if (res.ok) {
-                    setReports(Array.isArray(data) ? data : []);
-                } else {
-                    setReports([]);
                     setErrorMsg(data.error || 'Failed to fetch reports.');
                 }
             } catch (err: any) {
@@ -44,16 +81,18 @@ export default function ReportsPage() {
             }
         };
         fetchReports();
-    }, [startDate, endDate]);
+    }, [startDate, endDate, filterPin, filterBranch]);
 
     const handleExportExcel = () => {
-        window.location.href = `/api/reports/export?startDate=${startDate}&endDate=${endDate}`;
+        window.location.href = `/api/reports/export?format=excel&start=${startDate}&end=${endDate}&pin=${filterPin}&branch=${filterBranch}`;
     };
 
-    const handleExportPDF = () => {
-        const doc = new jsPDF('landscape'); // Landscape might be better for many columns
+    const handleExportPDF = async () => {
+        const res = await fetch(`/api/reports/export?format=json&start=${startDate}&end=${endDate}&pin=${filterPin}&branch=${filterBranch}`);
+        const data = await res.json();
+        const doc = new jsPDF('landscape');
         
-        if (reports.length === 0) {
+        if (data.length === 0) {
             doc.text(`No attendance records found for ${startDate} to ${endDate}`, 14, 15);
             doc.save(`TimeCards_${startDate}_to_${endDate}.pdf`);
             return;
@@ -173,6 +212,30 @@ export default function ReportsPage() {
                 <h2 className="text-2xl font-bold">Attendance Report</h2>
                 <div className="flex flex-wrap gap-4 items-center">
                     <select 
+                        value={filterBranch} 
+                        onChange={(e) => setFilterBranch(e.target.value)}
+                        className="border border-gray-300 rounded-lg px-4 py-2 focus:outline-none bg-white"
+                    >
+                        <option value="all">All Branches</option>
+                        {Array.from(new Set(employeesList.map(e => e.branch).filter(Boolean))).map(branch => (
+                            <option key={branch} value={branch}>{branch}</option>
+                        ))}
+                    </select>
+
+                    <select 
+                        value={filterPin} 
+                        onChange={(e) => setFilterPin(e.target.value)}
+                        className="border border-gray-300 rounded-lg px-4 py-2 focus:outline-none bg-white"
+                    >
+                        <option value="all">All Employees</option>
+                        {employeesList
+                            .filter(e => filterBranch === 'all' || e.branch === filterBranch)
+                            .map(emp => (
+                            <option key={emp.pin} value={emp.pin}>{emp.full_name || emp.pin}</option>
+                        ))}
+                    </select>
+
+                    <select 
                         value={rangeType} 
                         onChange={(e) => setRangeType(e.target.value)}
                         className="border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
@@ -259,7 +322,15 @@ export default function ReportsPage() {
                                     <td className="px-6 py-4 text-blue-600 font-medium">
                                         {row.check_out ? new Date(row.check_out).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '-'}
                                     </td>
-                                    <td className="px-6 py-4 font-medium">{totalHours}</td>
+                                    <td className="px-6 py-4 font-medium flex justify-between items-center">
+                                        {totalHours}
+                                        <button 
+                                            onClick={() => openPunchesModal(row.pin, row.punch_date, row.full_name)}
+                                            className="text-blue-500 text-xs hover:underline ml-2"
+                                        >
+                                            Edit Punches
+                                        </button>
+                                    </td>
                                 </tr>
                             );
                         })}
@@ -271,6 +342,49 @@ export default function ReportsPage() {
                     </tbody>
                 </table>
             </div>
+
+            {/* Punches Modal */}
+            {selectedRowForPunches && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                    <div className="bg-white rounded-xl p-6 max-w-lg w-full shadow-2xl">
+                        <h3 className="text-xl font-bold mb-1">Edit Punches</h3>
+                        <p className="text-sm text-gray-500 mb-4">{selectedRowForPunches.name} - {selectedRowForPunches.date}</p>
+                        
+                        <div className="max-h-60 overflow-y-auto mb-4 border rounded-lg">
+                            <table className="w-full text-left text-sm">
+                                <thead className="bg-gray-50 border-b">
+                                    <tr>
+                                        <th className="px-4 py-2">Time</th>
+                                        <th className="px-4 py-2">Source</th>
+                                        <th className="px-4 py-2">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {rawPunches.map((punch: any, i) => (
+                                        <tr key={i} className="border-b">
+                                            <td className="px-4 py-2 font-medium">{new Date(punch.timestamp).toLocaleTimeString()}</td>
+                                            <td className="px-4 py-2 text-gray-500">{punch.sn === 'MANUAL_ENTRY' ? 'Manual' : 'Device'}</td>
+                                            <td className="px-4 py-2">
+                                                <button onClick={() => deletePunch(punch.timestamp)} className="text-red-600 hover:underline">Delete</button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {rawPunches.length === 0 && <tr><td colSpan={3} className="px-4 py-4 text-center text-gray-500">No punches</td></tr>}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <form onSubmit={addManualPunch} className="flex gap-2">
+                            <input type="time" value={newPunchTime} onChange={e => setNewPunchTime(e.target.value)} required className="flex-1 border rounded-lg px-3 py-2" />
+                            <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg">Add Punch</button>
+                        </form>
+
+                        <div className="mt-6 flex justify-end">
+                            <button onClick={() => setSelectedRowForPunches(null)} className="bg-gray-100 px-4 py-2 rounded-lg">Close</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

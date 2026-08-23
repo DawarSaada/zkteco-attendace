@@ -5,15 +5,31 @@ import * as XLSX from 'xlsx';
 export async function GET(request: Request) {
     const supabase = await createClient();
     const { searchParams } = new URL(request.url);
-    const startDate = searchParams.get('startDate') || new Date().toISOString().split('T')[0];
-    const endDate = searchParams.get('endDate') || new Date().toISOString().split('T')[0];
+    const startDate = searchParams.get('start');
+    const endDate = searchParams.get('end');
+    const format = searchParams.get('format') || 'json';
+    const pin = searchParams.get('pin');
+    const branch = searchParams.get('branch');
 
-    const { data, error } = await supabase
+    if (!startDate || !endDate) {
+        return NextResponse.json({ error: 'Missing dates' }, { status: 400 });
+    }
+
+    let query = supabase
         .from('daily_attendance_summary')
         .select('*')
         .gte('punch_date', startDate)
         .lte('punch_date', endDate)
-        .order('punch_date', { ascending: false });
+        .order('punch_date', { ascending: true });
+
+    if (pin && pin !== 'all') {
+        query = query.eq('pin', pin);
+    }
+    if (branch && branch !== 'all') {
+        query = query.eq('branch', branch);
+    }
+
+    const { data, error } = await query;
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

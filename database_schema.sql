@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS public.devices (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
     sn VARCHAR(255) UNIQUE NOT NULL,
     name VARCHAR(255),
+    branch VARCHAR(255),
     ip_address VARCHAR(45),
     last_active TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -17,6 +18,7 @@ CREATE TABLE IF NOT EXISTS public.employees (
     pin VARCHAR(255) UNIQUE NOT NULL,
     full_name VARCHAR(255) NOT NULL,
     department VARCHAR(255),
+    branch VARCHAR(255),
     designation VARCHAR(255),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -54,6 +56,7 @@ SELECT
   a.pin,
   e.full_name,
   e.department,
+  e.branch,
   DATE(a.timestamp) as punch_date,
   MIN(a.timestamp) as check_in,
   MAX(a.timestamp) as check_out,
@@ -64,7 +67,7 @@ FROM public.attendance_logs a
 LEFT JOIN public.employees e ON a.pin = e.pin
 LEFT JOIN public.employee_shifts es ON e.pin = es.pin
 LEFT JOIN public.shifts s ON es.shift_id = s.id
-GROUP BY a.pin, e.full_name, e.department, DATE(a.timestamp), s.start_time, s.end_time;
+GROUP BY a.pin, e.full_name, e.department, e.branch, DATE(a.timestamp), s.start_time, s.end_time;
 
 CREATE TABLE public.device_commands (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
