@@ -55,6 +55,11 @@ app.post('/iclock/cdata', async (req, res) => {
                 const status = parts[2] || '0';
                 const verifyMode = parts[3] || '0';
 
+                // Ensure the employee PIN exists in the database to prevent Foreign Key constraints from failing
+                await supabase
+                    .from('employees')
+                    .upsert({ pin: pin, full_name: `User ${pin}` }, { onConflict: 'pin', ignoreDuplicates: true });
+
                 // Insert into Supabase
                 const { error } = await supabase
                     .from('attendance_logs')
