@@ -52,30 +52,63 @@ export default function ReportsPage() {
 
     const handleExportPDF = () => {
         const doc = new jsPDF();
-        doc.text(`Attendance Report (${startDate} to ${endDate})`, 14, 15);
         
-        const tableColumn = ["Employee", "Department", "Date", "Check In", "Check Out", "Punches"];
-        const tableRows: any[] = [];
+        if (reports.length === 0) {
+            doc.text(`No attendance records found for ${startDate} to ${endDate}`, 14, 15);
+            doc.save(`TimeCards_${startDate}_to_${endDate}.pdf`);
+            return;
+        }
 
-        reports.forEach(row => {
-            const rowData = [
-                row.full_name || row.pin,
-                row.department || '-',
+        // Group reports by employee PIN
+        const groupedReports = reports.reduce((acc, row) => {
+            const empKey = row.pin;
+            if (!acc[empKey]) {
+                acc[empKey] = {
+                    pin: row.pin,
+                    name: row.full_name || row.pin,
+                    department: row.department || '-',
+                    records: []
+                };
+            }
+            acc[empKey].records.push(row);
+            return acc;
+        }, {} as Record<string, any>);
+
+        const employees = Object.values(groupedReports);
+
+        employees.forEach((emp, index) => {
+            if (index > 0) {
+                doc.addPage();
+            }
+
+            // Print Header
+            doc.setFontSize(16);
+            doc.text(`Total Time Card`, 14, 15);
+            
+            doc.setFontSize(11);
+            doc.text(`Date Range: ${startDate} to ${endDate}`, 14, 25);
+            doc.text(`Emp No: ${emp.pin}`, 14, 32);
+            doc.text(`Employee Name: ${emp.name}`, 14, 39);
+            doc.text(`Department: ${emp.department}`, 14, 46);
+
+            const tableColumn = ["Date", "Check In", "Check Out", "Punches"];
+            const tableRows = emp.records.map((row: any) => [
                 row.punch_date,
                 row.check_in ? new Date(row.check_in).toLocaleTimeString() : '-',
                 row.check_out ? new Date(row.check_out).toLocaleTimeString() : '-',
                 row.total_punches
-            ];
-            tableRows.push(rowData);
+            ]);
+
+            autoTable(doc, {
+                head: [tableColumn],
+                body: tableRows,
+                startY: 52,
+                theme: 'grid',
+                headStyles: { fillColor: [41, 128, 185] }
+            });
         });
 
-        autoTable(doc, {
-            head: [tableColumn],
-            body: tableRows,
-            startY: 20,
-        });
-
-        doc.save(`Attendance_${startDate}_to_${endDate}.pdf`);
+        doc.save(`TimeCards_${startDate}_to_${endDate}.pdf`);
     };
 
     return (
