@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Employee } from '@/types';
 
 export default function EmployeesPage() {
@@ -13,7 +13,7 @@ export default function EmployeesPage() {
     const [successMsg, setSuccessMsg] = useState('');
     const [isSaving, setIsSaving] = useState(false);
 
-    const fetchEmployees = async () => {
+    const fetchEmployees = useCallback(async () => {
         try {
             const res = await fetch('/api/employees');
             if (res.ok) {
@@ -23,15 +23,15 @@ export default function EmployeesPage() {
                 setErrorMsg('Failed to fetch employees');
                 setEmployees([]);
             }
-        } catch (err: any) {
-            setErrorMsg(err.message || 'Error occurred fetching employees');
+        } catch (err: unknown) {
+            setErrorMsg(err instanceof Error ? err.message : 'Error occurred fetching employees');
             setEmployees([]);
         }
-    };
+    }, []);
 
     useEffect(() => {
         fetchEmployees();
-    }, []);
+    }, [fetchEmployees]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -64,8 +64,8 @@ export default function EmployeesPage() {
                 setDesignation('');
                 fetchEmployees(); // Refresh list
             }
-        } catch (err: any) {
-            setErrorMsg(err.message || 'Error occurred.');
+        } catch (err: unknown) {
+            setErrorMsg(err instanceof Error ? err.message : 'Error occurred.');
         } finally {
             setIsSaving(false);
         }

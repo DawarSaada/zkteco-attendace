@@ -1,14 +1,12 @@
 import { NextResponse } from 'next/server';
-import { createClient, createAdminClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/server';
+import { requireAuthUser, getErrorMessage } from '@/lib/auth-guard';
 
 export async function GET() {
-    try {
-        const authClient = await createClient();
-        const { data: { user }, error: authError } = await authClient.auth.getUser();
-        if (!user || authError) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
+    const auth = await requireAuthUser();
+    if (!auth.user) return auth.response!;
 
+    try {
         const supabase = createAdminClient();
         const { data, error } = await supabase
             .from('devices')
@@ -17,7 +15,7 @@ export async function GET() {
 
         if (error) return NextResponse.json({ error: error.message }, { status: 500 });
         return NextResponse.json(data);
-    } catch (err: any) {
-        return NextResponse.json({ error: err.message || 'Server error' }, { status: 500 });
+    } catch (error: unknown) {
+        return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
     }
 }

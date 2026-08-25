@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Shift, Employee, EmployeeShift } from '@/types';
 
@@ -26,7 +26,7 @@ export default function ShiftsPage() {
         setTimeout(() => setToastMsg(null), 4000);
     };
 
-    const fetchData = async () => {
+    const fetchData = useCallback(async () => {
         try {
             const [{ data: sData, error: sErr }, { data: eData, error: eErr }, { data: esData, error: esErr }] = await Promise.all([
                 supabase.from('shifts').select('*').order('name'),
@@ -43,14 +43,14 @@ export default function ShiftsPage() {
             setEmployeeShifts(esData || []);
             if (sData?.length && !assignShiftId) setAssignShiftId(sData[0].id);
             if (eData?.length && !assignEmpPin) setAssignEmpPin(eData[0].pin);
-        } catch (err: any) {
-            showToast(err.message || 'Failed to fetch shift data.', 'error');
+        } catch (err: unknown) {
+            showToast(err instanceof Error ? err.message : 'Failed to fetch shift data.', 'error');
         }
-    };
+    }, [supabase, assignShiftId, assignEmpPin]);
 
     useEffect(() => {
         fetchData();
-    }, []);
+    }, [fetchData]);
 
     const createShift = async (e: React.FormEvent) => {
         e.preventDefault();

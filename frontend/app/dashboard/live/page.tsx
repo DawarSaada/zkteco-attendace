@@ -38,7 +38,7 @@ export default function LiveMonitor() {
         return () => {
             supabase.removeChannel(channel);
         };
-    }, []);
+    }, [supabase]);
 
     return (
         <div className="space-y-6">

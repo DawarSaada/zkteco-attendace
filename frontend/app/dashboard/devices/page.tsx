@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Device } from '@/types';
 
@@ -17,7 +17,7 @@ export default function DevicesPage() {
         setTimeout(() => setToastMsg(null), 4000);
     };
 
-    const fetchDevices = async () => {
+    const fetchDevices = useCallback(async () => {
         try {
             const res = await fetch('/api/devices');
             if (res.ok) {
@@ -26,10 +26,10 @@ export default function DevicesPage() {
             } else {
                 showToast('Failed to fetch devices.', 'error');
             }
-        } catch (err: any) {
-            showToast(err.message || 'Error fetching devices', 'error');
+        } catch (err: unknown) {
+            showToast(err instanceof Error ? err.message : 'Error fetching devices', 'error');
         }
-    };
+    }, []);
 
     useEffect(() => {
         fetchDevices();
@@ -41,8 +41,10 @@ export default function DevicesPage() {
             })
             .subscribe();
 
-        return () => { supabase.removeChannel(channel); };
-    }, []);
+        return () => { 
+            supabase.removeChannel(channel); 
+        };
+    }, [fetchDevices, supabase]);
 
     const sendCommand = async (sn: string, command_str: string) => {
         setLoadingAction(sn);
@@ -58,8 +60,8 @@ export default function DevicesPage() {
             } else {
                 showToast(data.error || 'Failed to queue command.', 'error');
             }
-        } catch (err: any) {
-            showToast(err.message || 'Failed to queue command.', 'error');
+        } catch (err: unknown) {
+            showToast(err instanceof Error ? err.message : 'Failed to queue command.', 'error');
         } finally {
             setLoadingAction('');
         }
@@ -82,8 +84,8 @@ export default function DevicesPage() {
             } else {
                 showToast(data.error || 'Failed to update device.', 'error');
             }
-        } catch (err: any) {
-            showToast(err.message || 'Failed to update device.', 'error');
+        } catch (err: unknown) {
+            showToast(err instanceof Error ? err.message : 'Failed to update device.', 'error');
         }
     };
 

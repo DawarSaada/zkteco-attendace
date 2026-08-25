@@ -1,16 +1,15 @@
 import { NextResponse } from 'next/server';
-import { createClient, createAdminClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/server';
+import { requireAuthUser, getErrorMessage } from '@/lib/auth-guard';
+import { formatPunchTime, formatTotalHours, calculateMinutes } from '@/lib/utils/formatTime';
 import * as XLSX from 'xlsx';
 import { DailyAttendanceSummary } from '@/types';
 
 export async function GET(request: Request) {
-    try {
-        const authClient = await createClient();
-        const { data: { user }, error: authError } = await authClient.auth.getUser();
-        if (!user || authError) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
+    const auth = await requireAuthUser();
+    if (!auth.user) return auth.response!;
 
+    try {
         const supabase = createAdminClient();
         const { searchParams } = new URL(request.url);
         const startDate = searchParams.get('start');
@@ -27,7 +26,8 @@ export async function GET(request: Request) {
             .select('*')
             .gte('punch_date', startDate)
             .lte('punch_date', endDate)
-            .order('punch_date', { ascending: true });
+            .order('punch_date', { ascending: true })
+            .order('pin', { ascending: true });
 
         if (pin && pin !== 'all') {
             query = query.eq('pin', pin);
@@ -42,99 +42,93 @@ export async function GET(request: Request) {
 
         const recordsList = (data || []) as DailyAttendanceSummary[];
 
-        const groupedData = recordsList.reduce((acc: Record<string, { pin: string; name: string; department: string; branch: string; records: Record<string, string>[]; totalMinutes: number }>, row: DailyAttendanceSummary) => {
-            const empName = row.full_name || row.pin;
-            if (!acc[empName]) {
-                acc[empName] = {
+        // Group rows by employee PIN (fallback to full_name)
+        const groupedData = recordsList.reduce((acc: Record<string, {
+            pin: string;
+            name: string;
+            department: string;
+            branch: string;
+            records: Record<string, string>[];
+            totalMinutes: number;
+            daysPresent: number;
+        }>, row: DailyAttendanceSummary) => {
+            const empKey = row.pin || row.full_name || 'unknown';
+            const empName = row.full_name || `PIN ${row.pin}`;
+            
+            if (!acc[empKey]) {
+                acc[empKey] = {
                     pin: row.pin,
                     name: empName,
                     department: row.department || '',
                     branch: row.branch || '',
                     records: [],
-                    totalMinutes: 0
+                    totalMinutes: 0,
+                    daysPresent: 0
                 };
             }
-            
-            const pDate = new Date(row.punch_date);
-            const weekday = pDate.toLocaleDateString('en-US', { weekday: 'long' });
-            
-            let clockIn = '';
-            let clockOut = '';
-            let totalHours = '';
 
+            const clockInFormatted = formatPunchTime(row.check_in);
+            const clockOutFormatted = formatPunchTime(row.check_out);
+            const totalHoursFormatted = formatTotalHours(row.check_in, row.check_out);
+            const rowMinutes = calculateMinutes(row.check_in, row.check_out);
+
+            acc[empKey].totalMinutes += rowMinutes;
             if (row.check_in) {
-                clockIn = new Date(row.check_in).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
+                acc[empKey].daysPresent += 1;
             }
-            
-            if (row.check_out && row.check_in && row.check_in !== row.check_out) {
-                clockOut = new Date(row.check_out).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
-                const cIn = new Date(row.check_in).getTime();
-                const cOut = new Date(row.check_out).getTime();
-                const mins = Math.floor((cOut - cIn) / 60000);
-                
-                if (mins > 0) {
-                    acc[empName].totalMinutes += mins;
-                    const hrs = Math.floor(mins / 60);
-                    const remainingMins = mins % 60;
-                    totalHours = `${hrs.toString().padStart(2, '0')}:${remainingMins.toString().padStart(2, '0')}`;
-                }
-            }
-            
-            acc[empName].records.push({
+
+            acc[empKey].records.push({
                 'Date': row.punch_date,
-                'Weekday': weekday,
-                'Timetable': '',
-                'Check In': row.shift_start ? row.shift_start.substring(0, 5) : '00:00',
-                'Check Out': row.shift_end ? row.shift_end.substring(0, 5) : '00:00',
-                'Normal': '',
-                'Break': '',
-                'Work day': '1.0',
-                'Clock In': clockIn,
-                'Clock Out': clockOut,
-                'Total Hours': totalHours,
-                'Work Hours': '12:00',
-                'Break Out': '',
-                'Break In': ''
+                'Check In': clockInFormatted,
+                'Check Out': clockOutFormatted,
+                'Total Hours': totalHoursFormatted,
+                'Device Name': row.device_name || '-',
+                'Branch': row.branch || acc[empKey].branch || '-'
             });
-            
+
             return acc;
         }, {});
 
         const workbook = XLSX.utils.book_new();
 
-        Object.entries(groupedData).forEach(([empName, empInfo]) => {
-            const safeSheetName = String(empName).substring(0, 31).replace(/[\\/?*[\]]/g, '');
-            
-            // Add Header rows
+        Object.values(groupedData).forEach((empInfo) => {
+            // Truncate and sanitize sheet name (max 31 characters for Excel)
+            const rawSheetName = empInfo.name || `PIN_${empInfo.pin}`;
+            const safeSheetName = rawSheetName.replace(/[\\/?*[\]:]/g, '').substring(0, 31) || `PIN_${empInfo.pin}`;
+
             const deptString = empInfo.department ? `, Department: ${empInfo.department}` : '';
             const branchString = empInfo.branch ? `, Branch: ${empInfo.branch}` : '';
+            
             const headerData = [
-                [`Start Date: ${startDate}  End Date: ${endDate}`],
+                [`Start Date: ${startDate}    End Date: ${endDate}`],
                 [`Employee ID: ${empInfo.pin}, Name: ${empInfo.name}${deptString}${branchString}`],
-                [] // Empty spacer row before table
+                [] // Spacer row
             ];
 
-            // Calculate statistics
             const totalHrs = Math.floor(empInfo.totalMinutes / 60);
             const totalMins = empInfo.totalMinutes % 60;
-            const formattedTotal = `${totalHrs.toString().padStart(2, '0')}:${totalMins.toString().padStart(2, '0')}`;
-            
+            const formattedTotalHours = `${totalHrs}h ${totalMins}m`;
+
             const recordsWithStats = [
                 ...empInfo.records,
                 {
-                    'Date': 'Statistics',
-                    'Total Hours': formattedTotal
+                    'Date': 'Summary Statistics',
+                    'Check In': `Days Present: ${empInfo.daysPresent}`,
+                    'Check Out': '',
+                    'Total Hours': `Total: ${formattedTotalHours}`,
+                    'Device Name': '',
+                    'Branch': ''
                 }
             ];
 
             const worksheet = (XLSX.utils.json_to_sheet as any)(recordsWithStats, { origin: "A4" });
             XLSX.utils.sheet_add_aoa(worksheet, headerData, { origin: "A1" });
-            
-            XLSX.utils.book_append_sheet(workbook, worksheet, safeSheetName || 'Unknown');
+
+            XLSX.utils.book_append_sheet(workbook, worksheet, safeSheetName);
         });
 
         if (Object.keys(groupedData).length === 0) {
-            const emptySheet = XLSX.utils.json_to_sheet([{'Message': 'No records found for this period'}]);
+            const emptySheet = XLSX.utils.json_to_sheet([{ 'Message': 'No records found for this period' }]);
             XLSX.utils.book_append_sheet(workbook, emptySheet, "Attendance");
         }
 
@@ -146,7 +140,7 @@ export async function GET(request: Request) {
                 'Content-Disposition': `attachment; filename="Attendance_${startDate}_to_${endDate}.xlsx"`
             }
         });
-    } catch (err: any) {
-        return NextResponse.json({ error: err.message || 'Server error' }, { status: 500 });
+    } catch (error: unknown) {
+        return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
     }
 }

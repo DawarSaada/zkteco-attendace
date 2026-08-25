@@ -1,15 +1,17 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Employee, DailyAttendanceSummary, RawPunch } from '@/types';
+import { Employee, Device, DailyAttendanceSummary, RawPunch } from '@/types';
+import { formatPunchTime, formatTotalHours, calculateMinutes } from '@/lib/utils/formatTime';
 
 export default function ReportsPage() {
     const [rangeType, setRangeType] = useState('daily');
     const [startDate, setStartDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
     const [endDate, setEndDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
     const [employeesList, setEmployeesList] = useState<Employee[]>([]);
+    const [devicesList, setDevicesList] = useState<Device[]>([]);
     const [filterPin, setFilterPin] = useState('all');
     const [filterBranch, setFilterBranch] = useState('all');
     const [loading, setLoading] = useState(false);
@@ -29,22 +31,27 @@ export default function ReportsPage() {
         setTimeout(() => setToastMsg(null), 4000);
     };
 
-    // 1. Fetch employees list on mount to activate dropdown filters
+    // 1. Fetch employees and devices on mount to populate dynamic filter lists
     useEffect(() => {
-        const fetchEmployees = async () => {
+        const fetchFiltersData = async () => {
             try {
-                const res = await fetch('/api/employees');
-                if (res.ok) {
-                    const data = await res.json();
-                    setEmployeesList(Array.isArray(data) ? data : []);
-                } else {
-                    console.error('Failed to fetch employee list for filters');
+                const [empRes, devRes] = await Promise.all([
+                    fetch('/api/employees'),
+                    fetch('/api/devices')
+                ]);
+                if (empRes.ok) {
+                    const empData = await empRes.json();
+                    setEmployeesList(Array.isArray(empData) ? empData : []);
                 }
-            } catch (err) {
-                console.error('Error fetching employees:', err);
+                if (devRes.ok) {
+                    const devData = await devRes.json();
+                    setDevicesList(Array.isArray(devData) ? devData : []);
+                }
+            } catch (err: unknown) {
+                console.error('Error fetching filter data:', err);
             }
         };
-        fetchEmployees();
+        fetchFiltersData();
     }, []);
 
     // 2. Adjust dates when range type changes
@@ -64,7 +71,7 @@ export default function ReportsPage() {
     }, [rangeType]);
 
     // 3. Fetch attendance reports
-    const fetchReports = async () => {
+    const fetchReports = useCallback(async () => {
         setLoading(true);
         setErrorMsg('');
         try {
@@ -76,17 +83,17 @@ export default function ReportsPage() {
                 setReports([]);
                 setErrorMsg(data.error || 'Failed to fetch reports.');
             }
-        } catch (err: any) {
+        } catch (err: unknown) {
             setReports([]);
-            setErrorMsg(err.message || 'Error occurred while fetching data.');
+            setErrorMsg(err instanceof Error ? err.message : 'Error occurred while fetching data.');
         } finally {
             setLoading(false);
         }
-    };
+    }, [startDate, endDate, filterPin, filterBranch]);
 
     useEffect(() => {
         fetchReports();
-    }, [startDate, endDate, filterPin, filterBranch]);
+    }, [fetchReports]);
 
     // 4. Punches Modal Handlers
     const openPunchesModal = async (pin: string, date: string, name: string) => {
@@ -103,8 +110,8 @@ export default function ReportsPage() {
             } else {
                 showToast(data.error || 'Failed to load punches', 'error');
             }
-        } catch (err: any) {
-            showToast(err.message || 'Error loading punches', 'error');
+        } catch (err: unknown) {
+            showToast(err instanceof Error ? err.message : 'Error loading punches', 'error');
         }
     };
 
@@ -126,8 +133,8 @@ export default function ReportsPage() {
             } else {
                 showToast(data.error || 'Failed to delete punch.', 'error');
             }
-        } catch (err: any) {
-            showToast(err.message || 'Error deleting punch.', 'error');
+        } catch (err: unknown) {
+            showToast(err instanceof Error ? err.message : 'Error deleting punch.', 'error');
         }
     };
 
@@ -137,7 +144,7 @@ export default function ReportsPage() {
         setIsSavingPunch(true);
 
         try {
-            const localDateTimeStr = `${selectedRowForPunches.date}T${newPunchTime}:00`;
+            const localDateTimeStr = `${selectedRowForPunches.date}T${newPunchTime}:00Z`;
             const timestamp = new Date(localDateTimeStr).toISOString();
 
             const res = await fetch('/api/attendance/manual', {
@@ -153,8 +160,8 @@ export default function ReportsPage() {
             } else {
                 showToast(data.error || 'Failed to add manual punch.', 'error');
             }
-        } catch (err: any) {
-            showToast(err.message || 'Error adding punch.', 'error');
+        } catch (err: unknown) {
+            showToast(err instanceof Error ? err.message : 'Error adding punch.', 'error');
         } finally {
             setIsSavingPunch(false);
         }
@@ -165,7 +172,7 @@ export default function ReportsPage() {
         window.location.href = `/api/reports/export?start=${startDate}&end=${endDate}&pin=${filterPin}&branch=${filterBranch}`;
     };
 
-    // 6. Direct Client-side PDF Generation from memory (No broken binary fetch)
+    // 6. PDF Export: 1 Employee Per Page (Top-to-Bottom Chronological + Summary Statistics)
     const handleExportPDF = () => {
         if (reports.length === 0) {
             showToast('No attendance records available to generate PDF.', 'error');
@@ -174,21 +181,36 @@ export default function ReportsPage() {
 
         const doc = new jsPDF('landscape');
 
-        // Group attendance summary records by employee PIN
+        // Group rows by employee PIN
         const groupedReports = reports.reduce((acc, row) => {
             const empKey = row.pin;
             if (!acc[empKey]) {
                 acc[empKey] = {
                     pin: row.pin,
-                    name: row.full_name || row.pin,
+                    name: row.full_name || `PIN ${row.pin}`,
                     department: row.department || '',
                     branch: row.branch || '',
-                    records: []
+                    records: [],
+                    totalMinutes: 0,
+                    daysPresent: 0
                 };
             }
             acc[empKey].records.push(row);
+            const mins = calculateMinutes(row.check_in, row.check_out);
+            acc[empKey].totalMinutes += mins;
+            if (row.check_in) {
+                acc[empKey].daysPresent += 1;
+            }
             return acc;
-        }, {} as Record<string, { pin: string; name: string; department: string; branch: string; records: DailyAttendanceSummary[] }>);
+        }, {} as Record<string, {
+            pin: string;
+            name: string;
+            department: string;
+            branch: string;
+            records: DailyAttendanceSummary[];
+            totalMinutes: number;
+            daysPresent: number;
+        }>);
 
         const employees = Object.values(groupedReports);
 
@@ -197,85 +219,76 @@ export default function ReportsPage() {
                 doc.addPage();
             }
 
-            doc.setFontSize(11);
-            doc.text(`Start Date: ${startDate}    End Date: ${endDate}`, 14, 15);
-            const deptString = emp.department ? `, Department: ${emp.department}` : '';
-            const branchString = emp.branch ? `, Branch: ${emp.branch}` : '';
-            doc.text(`Employee ID: ${emp.pin}, Name: ${emp.name}${deptString}${branchString}`, 14, 22);
+            // 1. Employee Header Information
+            doc.setFontSize(14);
+            doc.setFont('helvetica', 'bold');
+            doc.text('Employee Time Card Report', 14, 14);
 
+            doc.setFontSize(10);
+            doc.setFont('helvetica', 'normal');
+            doc.text(`Period: ${startDate} to ${endDate}`, 14, 21);
+
+            const deptText = emp.department ? ` | Dept: ${emp.department}` : '';
+            const branchText = emp.branch ? ` | Branch: ${emp.branch}` : '';
+            doc.text(`Employee ID: ${emp.pin} | Name: ${emp.name}${deptText}${branchText}`, 14, 27);
+
+            // 2. Chronological Top-to-Bottom Table
             const tableColumn = [
-                "Date", "Weekday", "Timetable", "Check In", "Check Out", 
-                "Normal", "Break", "Work day", "Clock In", "Clock Out", 
-                "Total Hours", "Work Hours", "Break Out", "Break In"
+                "Date", "Day", "Schedule In", "Schedule Out", 
+                "Clock In", "Clock Out", "Total Hours", "Device", "Branch"
             ];
-            
-            let totalMinutesAll = 0;
 
             const tableRows = emp.records.map((row) => {
                 const pDate = new Date(row.punch_date);
                 const weekday = format(pDate, 'EEEE');
-                
-                let clockIn = '';
-                let clockOut = '';
-                let totalHours = '';
-
-                if (row.check_in) {
-                    clockIn = format(new Date(row.check_in), 'HH:mm');
-                }
-                
-                if (row.check_out && row.check_in && row.check_in !== row.check_out) {
-                    clockOut = format(new Date(row.check_out), 'HH:mm');
-                    const cIn = new Date(row.check_in).getTime();
-                    const cOut = new Date(row.check_out).getTime();
-                    const mins = Math.floor((cOut - cIn) / 60000);
-                    
-                    if (mins > 0) {
-                        totalMinutesAll += mins;
-                        const hrs = Math.floor(mins / 60);
-                        const remainingMins = mins % 60;
-                        totalHours = `${hrs.toString().padStart(2, '0')}:${remainingMins.toString().padStart(2, '0')}`;
-                    }
-                }
+                const clockIn = formatPunchTime(row.check_in);
+                const clockOut = formatPunchTime(row.check_out);
+                const totalHours = formatTotalHours(row.check_in, row.check_out);
 
                 return [
                     row.punch_date,
                     weekday,
-                    '', // Timetable
-                    row.shift_start ? row.shift_start.substring(0, 5) : '00:00',
-                    row.shift_end ? row.shift_end.substring(0, 5) : '00:00',
-                    '', '', // Normal, Break
-                    '1.0', // Work day
+                    row.shift_start ? row.shift_start.substring(0, 5) : '--:--',
+                    row.shift_end ? row.shift_end.substring(0, 5) : '--:--',
                     clockIn,
                     clockOut,
                     totalHours,
-                    '12:00', // Work Hours standard placeholder
-                    '', '' // Break Out, Break In
+                    row.device_name || '-',
+                    row.branch || emp.branch || '-'
                 ];
             });
 
-            // Statistics Row at bottom of table
-            const totalHrs = Math.floor(totalMinutesAll / 60);
-            const totalMins = totalMinutesAll % 60;
-            const formattedTotal = `${totalHrs.toString().padStart(2, '0')}:${totalMins.toString().padStart(2, '0')}`;
-            
+            // 3. Summary Statistics Row
+            const totalHrs = Math.floor(emp.totalMinutes / 60);
+            const totalMins = emp.totalMinutes % 60;
+            const formattedTotalHours = `${totalHrs}h ${totalMins}m`;
+
             tableRows.push([
-                'Statistics', '', '', '', '', '', '', '', '', '', formattedTotal, '', '', ''
+                'Total Days Present:',
+                `${emp.daysPresent} days`,
+                '',
+                '',
+                'Total Hours:',
+                '',
+                formattedTotalHours,
+                '',
+                ''
             ]);
 
             autoTable(doc, {
                 head: [tableColumn],
                 body: tableRows,
-                startY: 28,
+                startY: 32,
                 theme: 'grid',
                 styles: { 
                     fontSize: 8,
-                    lineColor: [0, 0, 0],
+                    lineColor: [200, 200, 200],
                     lineWidth: 0.1,
-                    textColor: [0, 0, 0]
+                    textColor: [30, 30, 30]
                 },
                 headStyles: { 
-                    fillColor: [245, 245, 245], 
-                    textColor: [0, 0, 0],
+                    fillColor: [240, 244, 248], 
+                    textColor: [20, 20, 20],
                     fontStyle: 'bold'
                 }
             });
@@ -285,8 +298,12 @@ export default function ReportsPage() {
         showToast('PDF exported successfully!');
     };
 
-    // Calculate unique branch list from loaded employees
-    const uniqueBranches = Array.from(new Set(employeesList.map(e => e.branch).filter(Boolean))) as string[];
+    // Calculate unique branch list from both employees and devices
+    const allBranches = [
+        ...employeesList.map(e => e.branch),
+        ...devicesList.map(d => d.branch)
+    ].filter(Boolean) as string[];
+    const uniqueBranches = Array.from(new Set(allBranches));
 
     return (
         <div className="space-y-6">
@@ -393,14 +410,7 @@ export default function ReportsPage() {
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                         {reports.map((row, idx) => {
-                            let totalHours = '-';
-                            if (row.check_in && row.check_out && row.check_in !== row.check_out) {
-                                const mins = Math.floor((new Date(row.check_out).getTime() - new Date(row.check_in).getTime()) / 60000);
-                                if (mins > 0) {
-                                    totalHours = `${Math.floor(mins / 60)}h ${mins % 60}m`;
-                                }
-                            }
-                            
+                            const totalHours = formatTotalHours(row.check_in, row.check_out);
                             const shiftStr = (row.shift_start && row.shift_end) 
                                 ? `${row.shift_start.substring(0,5)} - ${row.shift_end.substring(0,5)}` 
                                 : 'No Shift';
@@ -413,11 +423,11 @@ export default function ReportsPage() {
                                     </td>
                                     <td className="px-6 py-4 text-gray-500">{row.punch_date}</td>
                                     <td className="px-6 py-4 text-gray-500 font-mono text-sm">{shiftStr}</td>
-                                    <td className="px-6 py-4 text-green-600 font-medium">
-                                        {row.check_in ? new Date(row.check_in).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '-'}
+                                    <td className="px-6 py-4 text-green-600 font-medium font-mono">
+                                        {formatPunchTime(row.check_in)}
                                     </td>
-                                    <td className="px-6 py-4 text-blue-600 font-medium">
-                                        {row.check_out ? new Date(row.check_out).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '-'}
+                                    <td className="px-6 py-4 text-blue-600 font-medium font-mono">
+                                        {formatPunchTime(row.check_out)}
                                     </td>
                                     <td className="px-6 py-4 font-medium flex justify-between items-center">
                                         <span>{totalHours}</span>
@@ -453,7 +463,7 @@ export default function ReportsPage() {
                             <table className="w-full text-left text-sm">
                                 <thead className="bg-gray-50 border-b border-gray-200">
                                     <tr>
-                                        <th className="px-4 py-2 font-medium text-gray-600">Time</th>
+                                        <th className="px-4 py-2 font-medium text-gray-600">Time (UTC)</th>
                                         <th className="px-4 py-2 font-medium text-gray-600">Source</th>
                                         <th className="px-4 py-2 font-medium text-gray-600 text-right">Action</th>
                                     </tr>
@@ -461,7 +471,7 @@ export default function ReportsPage() {
                                 <tbody className="divide-y divide-gray-100">
                                     {rawPunches.map((punch, i) => (
                                         <tr key={i}>
-                                            <td className="px-4 py-2 font-medium">{new Date(punch.timestamp).toLocaleTimeString()}</td>
+                                            <td className="px-4 py-2 font-medium font-mono">{formatPunchTime(punch.timestamp)}</td>
                                             <td className="px-4 py-2 text-gray-500">
                                                 <span className={`px-2 py-0.5 rounded text-xs ${
                                                     punch.sn === 'MANUAL_ENTRY' ? 'bg-purple-50 text-purple-700' : 'bg-gray-100 text-gray-700'
