@@ -10,8 +10,7 @@ import {
     Fingerprint, 
     ScanFace, 
     KeyRound, 
-    MonitorSmartphone,
-    Radio
+    MonitorSmartphone
 } from 'lucide-react';
 
 export default function LiveMonitor() {
@@ -24,43 +23,59 @@ export default function LiveMonitor() {
     const fetchLogs = useCallback(async (isManualTrigger = false) => {
         if (isManualTrigger) setIsRefreshing(true);
         try {
-            const { data, error } = await supabase
-                .from('attendance_logs')
-                .select('*, employees(full_name, branch, department)')
-                .order('timestamp', { ascending: false })
-                .limit(40);
+            // Fetch logs and employees in parallel to avoid PostgREST relationship 400 errors
+            const [{ data: logsData, error: logsError }, { data: empData }] = await Promise.all([
+                supabase
+                    .from('attendance_logs')
+                    .select('*')
+                    .order('timestamp', { ascending: false })
+                    .limit(40),
+                supabase
+                    .from('employees')
+                    .select('pin, full_name, branch, department')
+            ]);
             
-            if (!error && data) {
-                setLogs(data as AttendanceLog[]);
+            if (!logsError && logsData) {
+                const empMap = new Map<string, { full_name: string; branch?: string | null; department?: string | null }>();
+                (empData || []).forEach(e => {
+                    empMap.set(e.pin, e);
+                });
+
+                const joinedLogs: AttendanceLog[] = logsData.map(log => ({
+                    ...log,
+                    employees: empMap.get(log.pin) || null
+                }));
+
+                setLogs(joinedLogs);
                 setLastUpdated(new Date());
+            } else if (logsError) {
+                console.error('[Live Monitor] Error fetching logs:', logsError.message);
             }
         } catch (err: unknown) {
-            console.error('Error fetching live logs:', err);
+            console.error('[Live Monitor] Catch error:', err);
         } finally {
             if (isManualTrigger) {
-                setTimeout(() => setIsRefreshing(false), 500);
+                setTimeout(() => setIsRefreshing(false), 400);
             }
         }
     }, [supabase]);
 
     useEffect(() => {
-        // 1. Initial fetch
         fetchLogs();
 
-        // 2. Continuous 4-second Polling Fallback (ensures live feed even if WebSockets are blocked)
+        // Continuous 4-second polling fallback
         const pollInterval = setInterval(() => {
             fetchLogs();
         }, 4000);
 
-        // 3. Supabase Realtime WebSocket Listener (instantaneous updates)
+        // Supabase Realtime WebSocket Listener
         const channel = supabase
-            .channel('realtime_live_logs')
+            .channel('realtime_live_logs_stream')
             .on(
                 'postgres_changes',
                 { event: 'INSERT', schema: 'public', table: 'attendance_logs' },
                 async (payload) => {
                     const newLog = payload.new as AttendanceLog;
-                    // Fetch employee metadata
                     const { data: empData } = await supabase
                         .from('employees')
                         .select('full_name, branch, department')
@@ -213,14 +228,14 @@ export default function LiveMonitor() {
                                             </div>
                                         </td>
                                         <td className="px-6 py-4">
-                                            {log.is_manual || log.sn === 'MANUAL_ENTRY' ? (
+                                            {log.is_manual || !log.sn ? (
                                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60">
                                                     Manual Punch
                                                 </span>
                                             ) : (
                                                 <span className="inline-flex items-center gap-1.5 font-mono text-xs text-slate-600 dark:text-slate-400">
                                                     <MonitorSmartphone size={13} className="text-slate-400" />
-                                                    <span>{log.sn || 'ADMS'}</span>
+                                                    <span>{log.sn}</span>
                                                 </span>
                                             )}
                                         </td>
