@@ -28,18 +28,25 @@ CREATE TABLE IF NOT EXISTS public.employees (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 3. Attendance Logs Table 
+-- 3. Attendance Logs Table (with Audit Trail Columns)
 CREATE TABLE IF NOT EXISTS public.attendance_logs (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
     sn VARCHAR(255) REFERENCES public.devices(sn) ON DELETE CASCADE,
     pin VARCHAR(255) REFERENCES public.employees(pin) ON DELETE CASCADE,
     timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
-    status VARCHAR(50), 
-    verify_mode VARCHAR(50), 
+    status VARCHAR(50) DEFAULT '0', 
+    verify_mode VARCHAR(50) DEFAULT '0', 
     work_code INTEGER DEFAULT 0, 
+    is_manual BOOLEAN DEFAULT false,
+    edited_by UUID,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     UNIQUE(sn, pin, timestamp) 
 );
+
+-- Migration safety for existing tables:
+ALTER TABLE public.attendance_logs ADD COLUMN IF NOT EXISTS is_manual BOOLEAN DEFAULT false;
+ALTER TABLE public.attendance_logs ADD COLUMN IF NOT EXISTS edited_by UUID;
+ALTER TABLE public.attendance_logs ADD COLUMN IF NOT EXISTS work_code INTEGER DEFAULT 0;
 
 -- 4. Shifts Table
 CREATE TABLE IF NOT EXISTS public.shifts (
@@ -58,12 +65,12 @@ CREATE TABLE IF NOT EXISTS public.employee_shifts (
     UNIQUE(pin)
 );
 
--- 6. Device Commands Table
+-- 6. Device Commands Table (State Machine: PENDING -> SENT -> ACKNOWLEDGED / FAILED)
 CREATE TABLE IF NOT EXISTS public.device_commands (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
     sn VARCHAR(255) REFERENCES public.devices(sn) ON DELETE CASCADE,
     command_str TEXT NOT NULL,
-    status VARCHAR(50) DEFAULT 'PENDING',
+    status VARCHAR(50) DEFAULT 'PENDING', -- PENDING, SENT, ACKNOWLEDGED, FAILED
     created_at TIMESTAMPTZ DEFAULT NOW(),
     executed_at TIMESTAMPTZ
 );
@@ -128,5 +135,20 @@ BEGIN
     END IF;
 END $$;
 
--- 10. Grant permissions
+-- 10. Enable Supabase Realtime Publication for Live Monitoring
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_publication_tables 
+        WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'attendance_logs'
+    ) THEN
+        BEGIN
+            ALTER PUBLICATION supabase_realtime ADD TABLE public.attendance_logs;
+        EXCEPTION WHEN OTHERS THEN
+            NULL; -- Ignore if publication doesn't exist or already added
+        END;
+    END IF;
+END $$;
+
+-- 11. Grant permissions
 GRANT SELECT ON public.daily_attendance_summary TO authenticated, anon, service_role;

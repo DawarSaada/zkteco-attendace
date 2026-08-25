@@ -1,10 +1,26 @@
 'use client';
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
+import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Employee, Device, DailyAttendanceSummary, RawPunch } from '@/types';
 import { formatPunchTime, formatTotalHours, calculateMinutes } from '@/lib/utils/formatTime';
+import { 
+    FileSpreadsheet, 
+    FileText, 
+    Edit3, 
+    Plus, 
+    Trash2, 
+    X, 
+    AlertTriangle, 
+    Clock, 
+    CheckCircle2, 
+    Calendar,
+    Building2,
+    Search,
+    RotateCw,
+    User
+} from 'lucide-react';
 
 export default function ReportsPage() {
     const [rangeType, setRangeType] = useState('daily');
@@ -21,7 +37,11 @@ export default function ReportsPage() {
     const [selectedRowForPunches, setSelectedRowForPunches] = useState<{ pin: string; date: string; name: string } | null>(null);
     const [rawPunches, setRawPunches] = useState<RawPunch[]>([]);
     const [newPunchTime, setNewPunchTime] = useState('09:00');
+    const [newPunchStatus, setNewPunchStatus] = useState('0');
     const [isSavingPunch, setIsSavingPunch] = useState(false);
+
+    // Inline Edit Punch state
+    const [editingPunch, setEditingPunch] = useState<{ id?: string; oldTimestamp: string; time: string; status: string } | null>(null);
 
     const [reports, setReports] = useState<DailyAttendanceSummary[]>([]);
     const [errorMsg, setErrorMsg] = useState('');
@@ -98,6 +118,7 @@ export default function ReportsPage() {
     // 4. Punches Modal Handlers
     const openPunchesModal = async (pin: string, date: string, name: string) => {
         setSelectedRowForPunches({ pin, date, name });
+        setEditingPunch(null);
         fetchRawPunches(pin, date);
     };
 
@@ -115,15 +136,28 @@ export default function ReportsPage() {
         }
     };
 
-    const deletePunch = async (timestamp: string) => {
+    const deletePunch = async (punch: RawPunch) => {
         if (!selectedRowForPunches) return;
-        if (!confirm('Are you sure you want to delete this punch record?')) return;
+        
+        // Edge case check: warn user if deleting a punch that is part of a paired check-in/out
+        if (rawPunches.length === 2) {
+            const confirmed = confirm(
+                '⚠️ Attention: Deleting this punch will leave an unpaired punch for this day. Are you sure you want to proceed?'
+            );
+            if (!confirmed) return;
+        } else {
+            if (!confirm('Are you sure you want to delete this punch record?')) return;
+        }
         
         try {
             const res = await fetch('/api/attendance/manual', {
-                method: 'POST',
+                method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'delete', pin: selectedRowForPunches.pin, timestamp })
+                body: JSON.stringify({ 
+                    id: punch.id, 
+                    pin: selectedRowForPunches.pin, 
+                    timestamp: punch.timestamp 
+                })
             });
             const data = await res.json();
             if (res.ok) {
@@ -150,11 +184,17 @@ export default function ReportsPage() {
             const res = await fetch('/api/attendance/manual', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'add', pin: selectedRowForPunches.pin, timestamp })
+                body: JSON.stringify({ 
+                    pin: selectedRowForPunches.pin, 
+                    timestamp,
+                    status: newPunchStatus,
+                    verify_mode: '0',
+                    work_code: 0
+                })
             });
             const data = await res.json();
             if (res.ok) {
-                showToast('Manual punch added successfully.');
+                showToast('Manual punch recorded with audit trail.');
                 fetchRawPunches(selectedRowForPunches.pin, selectedRowForPunches.date);
                 fetchReports();
             } else {
@@ -167,19 +207,54 @@ export default function ReportsPage() {
         }
     };
 
+    const handleSavePunchEdit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!selectedRowForPunches || !editingPunch) return;
+        setIsSavingPunch(true);
+
+        try {
+            const localDateTimeStr = `${selectedRowForPunches.date}T${editingPunch.time}:00Z`;
+            const newIso = new Date(localDateTimeStr).toISOString();
+
+            const res = await fetch('/api/attendance/manual', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id: editingPunch.id,
+                    pin: selectedRowForPunches.pin,
+                    old_timestamp: editingPunch.oldTimestamp,
+                    timestamp: newIso,
+                    status: editingPunch.status
+                })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                showToast('Punch modified successfully with audit trail.');
+                setEditingPunch(null);
+                fetchRawPunches(selectedRowForPunches.pin, selectedRowForPunches.date);
+                fetchReports();
+            } else {
+                showToast(data.error || 'Failed to update punch.', 'error');
+            }
+        } catch (err: unknown) {
+            showToast(err instanceof Error ? err.message : 'Error updating punch.', 'error');
+        } finally {
+            setIsSavingPunch(false);
+        }
+    };
+
     // 5. Excel Export Handler
     const handleExportExcel = () => {
         window.location.href = `/api/reports/export?start=${startDate}&end=${endDate}&pin=${filterPin}&branch=${filterBranch}`;
     };
 
-    // 6. PDF Export: Exactly 1 Page Per Employee Per Month (Never cross onto a 2nd page)
+    // 6. PDF Export: Strict 1-Page-Per-Employee Guarantee
     const handleExportPDF = () => {
         if (reports.length === 0) {
             showToast('No attendance records available to generate PDF.', 'error');
             return;
         }
 
-        // A4 Landscape: 297mm x 210mm
         const doc = new jsPDF({
             orientation: 'landscape',
             unit: 'mm',
@@ -224,7 +299,7 @@ export default function ReportsPage() {
                 doc.addPage('a4', 'landscape');
             }
 
-            // Compact Header at top of page
+            // Compact Header
             doc.setFontSize(13);
             doc.setFont('helvetica', 'bold');
             doc.text('Monthly Employee Time Card Report', 10, 9);
@@ -238,7 +313,7 @@ export default function ReportsPage() {
             doc.setFont('helvetica', 'bold');
             doc.text(`Employee ID: ${emp.pin} | Name: ${emp.name}${deptText}${branchText}`, 10, 18.5);
 
-            // Table Columns
+            // Columns
             const tableColumn = [
                 "Date", "Day", "Schedule In", "Schedule Out", 
                 "Clock In", "Clock Out", "Total Hours", "Device", "Branch"
@@ -246,7 +321,7 @@ export default function ReportsPage() {
 
             const tableRows = emp.records.map((row) => {
                 const pDate = new Date(row.punch_date);
-                const weekday = format(pDate, 'EEE'); // Abbreviated Day for clean width
+                const weekday = format(pDate, 'EEE');
                 const clockIn = formatPunchTime(row.check_in);
                 const clockOut = formatPunchTime(row.check_out);
                 const totalHours = formatTotalHours(row.check_in, row.check_out);
@@ -281,7 +356,6 @@ export default function ReportsPage() {
                 ''
             ]);
 
-            // Precise density scaling: up to 32 rows fit easily on 1 landscape A4 page (210mm height)
             const rowCount = tableRows.length;
             const isDense = rowCount > 18;
             const fontSize = isDense ? 6.5 : 7.5;
@@ -294,7 +368,7 @@ export default function ReportsPage() {
                 startY: 21,
                 margin: { top: 21, bottom: 6, left: 8, right: 8 },
                 theme: 'grid',
-                pageBreak: 'avoid', // Guarantee no unwanted page breaks
+                pageBreak: 'avoid',
                 styles: { 
                     fontSize: fontSize,
                     cellPadding: cellPadding,
@@ -312,15 +386,15 @@ export default function ReportsPage() {
                     cellPadding: cellPadding + 0.2
                 },
                 columnStyles: {
-                    0: { cellWidth: 26 }, // Date
-                    1: { cellWidth: 16 }, // Day
-                    2: { cellWidth: 24 }, // Schedule In
-                    3: { cellWidth: 24 }, // Schedule Out
-                    4: { cellWidth: 22 }, // Clock In
-                    5: { cellWidth: 22 }, // Clock Out
-                    6: { cellWidth: 24 }, // Total Hours
-                    7: { cellWidth: 'auto' }, // Device
-                    8: { cellWidth: 'auto' }  // Branch
+                    0: { cellWidth: 26 },
+                    1: { cellWidth: 16 },
+                    2: { cellWidth: 24 },
+                    3: { cellWidth: 24 },
+                    4: { cellWidth: 22 },
+                    5: { cellWidth: 22 },
+                    6: { cellWidth: 24 },
+                    7: { cellWidth: 'auto' },
+                    8: { cellWidth: 'auto' }
                 }
             });
         });
@@ -329,75 +403,98 @@ export default function ReportsPage() {
         showToast('PDF exported successfully (1 page per employee)!');
     };
 
-    // Calculate unique branch list from both employees and devices
     const allBranches = [
         ...employeesList.map(e => e.branch),
         ...devicesList.map(d => d.branch)
     ].filter(Boolean) as string[];
     const uniqueBranches = Array.from(new Set(allBranches));
 
-    // Combine all unique employees from both API list and active report records
-    // This ensures every employee with records or in the database appears with name and PIN number
     const combinedEmployees = useMemo(() => {
         const empMap = new Map<string, { pin: string; full_name: string; branch?: string }>();
-        
         employeesList.forEach(e => {
-            empMap.set(e.pin, {
-                pin: e.pin,
-                full_name: e.full_name || '',
-                branch: e.branch || ''
-            });
+            empMap.set(e.pin, { pin: e.pin, full_name: e.full_name || '', branch: e.branch || '' });
         });
-
         reports.forEach(r => {
             if (!empMap.has(r.pin)) {
-                empMap.set(r.pin, {
-                    pin: r.pin,
-                    full_name: r.full_name || '',
-                    branch: r.branch || ''
-                });
+                empMap.set(r.pin, { pin: r.pin, full_name: r.full_name || '', branch: r.branch || '' });
             }
         });
-
         return Array.from(empMap.values()).sort((a, b) => {
-            if (a.full_name && b.full_name) {
-                return a.full_name.localeCompare(b.full_name);
-            }
+            if (a.full_name && b.full_name) return a.full_name.localeCompare(b.full_name);
             return a.pin.localeCompare(b.pin, undefined, { numeric: true });
         });
     }, [employeesList, reports]);
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-6 animate-in fade-in duration-200">
             {/* Toast Notification */}
             {toastMsg && (
-                <div className={`p-4 rounded-lg border text-sm font-medium transition-all ${
-                    toastMsg.type === 'success' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'
+                <div className={`p-4 rounded-xl border text-sm font-medium transition-all ${
+                    toastMsg.type === 'success' ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800' : 'bg-red-50 dark:bg-red-950/60 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800'
                 }`}>
                     {toastMsg.text}
                 </div>
             )}
 
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <h2 className="text-2xl font-bold">Attendance Report</h2>
-                <div className="flex flex-wrap gap-3 items-center">
-                    {/* Branch Filter */}
+            {/* Header Title & Export Buttons */}
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-2 border-b border-slate-200 dark:border-slate-800/60">
+                <div>
+                    <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+                        Attendance Reports
+                    </h2>
+                    <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                        Generate timecard summaries, review shifts, and edit manual punches.
+                    </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                    <button 
+                        type="button"
+                        onClick={handleExportExcel}
+                        className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold shadow-sm shadow-emerald-600/20 transition-all cursor-pointer"
+                    >
+                        <FileSpreadsheet size={16} />
+                        <span>Export Excel (Multi-Sheet)</span>
+                    </button>
+                    <button 
+                        type="button"
+                        onClick={handleExportPDF}
+                        className="inline-flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold shadow-sm shadow-red-600/20 transition-all cursor-pointer"
+                    >
+                        <FileText size={16} />
+                        <span>Export PDF (1 Page/Emp)</span>
+                    </button>
+                </div>
+            </div>
+
+            {/* Filter Toolbar */}
+            <div className="p-4 rounded-2xl bg-white dark:bg-[#0c121e] border border-slate-200 dark:border-slate-800/80 shadow-xs flex flex-wrap items-center gap-3">
+                {/* Branch Filter */}
+                <div className="w-full sm:w-auto flex-1 min-w-[180px]">
+                    <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                        Branch
+                    </label>
                     <select 
                         value={filterBranch} 
                         onChange={(e) => setFilterBranch(e.target.value)}
-                        className="border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm"
+                        className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 cursor-pointer"
                     >
                         <option value="all">All Branches</option>
                         {uniqueBranches.map(branch => (
                             <option key={branch} value={branch}>{branch}</option>
                         ))}
                     </select>
+                </div>
 
-                    {/* Employee Filter: Displays both Employee Name and PIN Number */}
+                {/* Employee Filter */}
+                <div className="w-full sm:w-auto flex-1 min-w-[220px]">
+                    <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                        Employee
+                    </label>
                     <select 
                         value={filterPin} 
                         onChange={(e) => setFilterPin(e.target.value)}
-                        className="border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm max-w-xs"
+                        className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 cursor-pointer"
                     >
                         <option value="all">All Employees ({combinedEmployees.length})</option>
                         {combinedEmployees
@@ -413,184 +510,312 @@ export default function ReportsPage() {
                                 );
                             })}
                     </select>
+                </div>
 
-                    {/* Range Type */}
+                {/* Range Preset */}
+                <div className="w-full sm:w-auto min-w-[140px]">
+                    <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                        Timeframe
+                    </label>
                     <select 
                         value={rangeType} 
                         onChange={(e) => setRangeType(e.target.value)}
-                        className="border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm"
+                        className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 cursor-pointer"
                     >
-                        <option value="daily">Daily</option>
+                        <option value="daily">Today</option>
                         <option value="weekly">This Week</option>
                         <option value="monthly">This Month</option>
-                        <option value="custom">Custom Range</option>
+                        <option value="custom">Custom Date Range</option>
                     </select>
-
-                    {rangeType === 'custom' && (
-                        <div className="flex items-center space-x-2 text-sm">
-                            <input 
-                                type="date" 
-                                value={startDate} 
-                                onChange={(e) => setStartDate(e.target.value)} 
-                                className="border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            />
-                            <span>to</span>
-                            <input 
-                                type="date" 
-                                value={endDate} 
-                                onChange={(e) => setEndDate(e.target.value)} 
-                                className="border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            />
-                        </div>
-                    )}
-                    
-                    <button 
-                        onClick={handleExportExcel}
-                        className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 text-sm font-medium transition-colors cursor-pointer"
-                    >
-                        Export Excel
-                    </button>
-                    <button 
-                        onClick={handleExportPDF}
-                        className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 text-sm font-medium transition-colors cursor-pointer"
-                    >
-                        Export PDF
-                    </button>
                 </div>
+
+                {/* Custom Dates */}
+                {rangeType === 'custom' && (
+                    <div className="w-full sm:w-auto flex items-center gap-2 pt-4 sm:pt-4">
+                        <input 
+                            type="date" 
+                            value={startDate} 
+                            onChange={(e) => setStartDate(e.target.value)} 
+                            className="px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500"
+                        />
+                        <span className="text-xs text-slate-400">to</span>
+                        <input 
+                            type="date" 
+                            value={endDate} 
+                            onChange={(e) => setEndDate(e.target.value)} 
+                            className="px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500"
+                        />
+                    </div>
+                )}
             </div>
 
             {errorMsg && (
-                <div className="bg-red-50 text-red-600 p-4 rounded-lg border border-red-200">
+                <div className="p-4 rounded-xl bg-red-50 dark:bg-red-950/60 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 text-sm">
                     {errorMsg}
                 </div>
             )}
 
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-                <table className="w-full text-left">
-                    <thead className="bg-gray-50 border-b border-gray-200">
-                        <tr>
-                            <th className="px-6 py-4 text-sm font-medium text-gray-500">Employee</th>
-                            <th className="px-6 py-4 text-sm font-medium text-gray-500">Date</th>
-                            <th className="px-6 py-4 text-sm font-medium text-gray-500">Scheduled Shift</th>
-                            <th className="px-6 py-4 text-sm font-medium text-gray-500">Check In</th>
-                            <th className="px-6 py-4 text-sm font-medium text-gray-500">Check Out</th>
-                            <th className="px-6 py-4 text-sm font-medium text-gray-500">Total Hours</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                        {reports.map((row, idx) => {
-                            const totalHours = formatTotalHours(row.check_in, row.check_out);
-                            const shiftStr = (row.shift_start && row.shift_end) 
-                                ? `${row.shift_start.substring(0,5)} - ${row.shift_end.substring(0,5)}` 
-                                : 'No Shift';
+            {/* Reports Table */}
+            <div className="rounded-2xl bg-white dark:bg-[#0c121e] border border-slate-200 dark:border-slate-800/80 shadow-xs overflow-hidden transition-colors">
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                        <thead className="bg-slate-50/80 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-800/80">
+                            <tr>
+                                <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Employee</th>
+                                <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Date</th>
+                                <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Shift Schedule</th>
+                                <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">First In (UTC)</th>
+                                <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Last Out (UTC)</th>
+                                <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Duration</th>
+                                <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right">Audit & Punches</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-sm">
+                            {reports.map((row, idx) => {
+                                const totalHours = formatTotalHours(row.check_in, row.check_out);
+                                const shiftStr = (row.shift_start && row.shift_end) 
+                                    ? `${row.shift_start.substring(0,5)} - ${row.shift_end.substring(0,5)}` 
+                                    : 'Unassigned';
 
-                            return (
-                                <tr key={idx} className="hover:bg-gray-50">
-                                    <td className="px-6 py-4 font-medium">
-                                        <div>{row.full_name || row.pin}</div>
-                                        <div className="text-xs text-gray-400">PIN: {row.pin}{row.branch ? ` &bull; ${row.branch}` : ''}</div>
-                                    </td>
-                                    <td className="px-6 py-4 text-gray-500">{row.punch_date}</td>
-                                    <td className="px-6 py-4 text-gray-500 font-mono text-sm">{shiftStr}</td>
-                                    <td className="px-6 py-4 text-green-600 font-medium font-mono">
-                                        {formatPunchTime(row.check_in)}
-                                    </td>
-                                    <td className="px-6 py-4 text-blue-600 font-medium font-mono">
-                                        {formatPunchTime(row.check_out)}
-                                    </td>
-                                    <td className="px-6 py-4 font-medium flex justify-between items-center">
-                                        <span>{totalHours}</span>
-                                        <button 
-                                            onClick={() => openPunchesModal(row.pin, row.punch_date, row.full_name || row.pin)}
-                                            className="text-blue-600 text-xs hover:underline ml-2 bg-blue-50 px-2 py-1 rounded font-medium cursor-pointer"
-                                        >
-                                            Edit Punches
-                                        </button>
+                                return (
+                                    <tr key={idx} className="hover:bg-slate-50/60 dark:hover:bg-slate-900/40 transition-colors">
+                                        <td className="px-6 py-4 font-medium text-slate-900 dark:text-white">
+                                            <div className="font-semibold">{row.full_name || `Employee ${row.pin}`}</div>
+                                            <div className="text-xs text-slate-400 dark:text-slate-500">
+                                                PIN: {row.pin} {row.branch ? `&bull; ${row.branch}` : ''}
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4 font-mono text-slate-600 dark:text-slate-300">
+                                            {row.punch_date}
+                                        </td>
+                                        <td className="px-6 py-4 font-mono text-xs text-slate-500 dark:text-slate-400">
+                                            {shiftStr}
+                                        </td>
+                                        <td className="px-6 py-4 font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                                            {formatPunchTime(row.check_in)}
+                                        </td>
+                                        <td className="px-6 py-4 font-mono font-bold text-blue-600 dark:text-blue-400">
+                                            {formatPunchTime(row.check_out)}
+                                        </td>
+                                        <td className="px-6 py-4 font-mono font-semibold text-slate-800 dark:text-slate-200">
+                                            {totalHours}
+                                        </td>
+                                        <td className="px-6 py-4 text-right">
+                                            <button 
+                                                type="button"
+                                                onClick={() => openPunchesModal(row.pin, row.punch_date, row.full_name || row.pin)}
+                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 text-xs font-semibold border border-blue-200 dark:border-blue-800/60 transition-colors cursor-pointer"
+                                            >
+                                                <Edit3 size={13} />
+                                                <span>Manage Punches</span>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                            {reports.length === 0 && !errorMsg && (
+                                <tr>
+                                    <td colSpan={7} className="px-6 py-12 text-center text-slate-400 dark:text-slate-500">
+                                        {loading ? (
+                                            <div className="flex items-center justify-center gap-2">
+                                                <RotateCw size={18} className="animate-spin text-blue-500" />
+                                                <span>Loading attendance records...</span>
+                                            </div>
+                                        ) : 'No attendance logs recorded for selected filter period.'}
                                     </td>
                                 </tr>
-                            );
-                        })}
-                        {reports.length === 0 && !errorMsg && (
-                            <tr>
-                                <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
-                                    {loading ? 'Loading attendance records...' : 'No attendance records found for this period.'}
-                                </td>
-                            </tr>
-                        )}
-                    </tbody>
-                </table>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
             </div>
 
-            {/* Punches Modal */}
+            {/* Manual Punches & Audit Trail Modal */}
             {selectedRowForPunches && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 animate-in fade-in">
-                    <div className="bg-white rounded-xl p-6 max-w-lg w-full shadow-2xl">
-                        <h3 className="text-xl font-bold mb-1">Edit Raw Punches</h3>
-                        <p className="text-sm text-gray-500 mb-4">{selectedRowForPunches.name} &bull; {selectedRowForPunches.date}</p>
-                        
-                        <div className="max-h-60 overflow-y-auto mb-4 border border-gray-200 rounded-lg">
-                            <table className="w-full text-left text-sm">
-                                <thead className="bg-gray-50 border-b border-gray-200">
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
+                    <div className="bg-white dark:bg-[#0c121e] rounded-2xl p-6 max-w-xl w-full shadow-2xl border border-slate-200 dark:border-slate-800 space-y-5 animate-in zoom-in-95 duration-150">
+                        <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800/80">
+                            <div>
+                                <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+                                    Manual Attendance & Audit Trail
+                                </h3>
+                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                                    {selectedRowForPunches.name} &bull; PIN: {selectedRowForPunches.pin} &bull; {selectedRowForPunches.date}
+                                </p>
+                            </div>
+                            <button 
+                                type="button"
+                                onClick={() => setSelectedRowForPunches(null)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        {/* Raw Punches List */}
+                        <div className="max-h-56 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
+                            <table className="w-full text-left text-xs">
+                                <thead className="bg-slate-100 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 uppercase tracking-wider font-semibold">
                                     <tr>
-                                        <th className="px-4 py-2 font-medium text-gray-600">Time (UTC)</th>
-                                        <th className="px-4 py-2 font-medium text-gray-600">Source</th>
-                                        <th className="px-4 py-2 font-medium text-gray-600 text-right">Action</th>
+                                        <th className="px-4 py-2.5">Time (UTC)</th>
+                                        <th className="px-4 py-2.5">Type</th>
+                                        <th className="px-4 py-2.5">Source / Audit</th>
+                                        <th className="px-4 py-2.5 text-right">Actions</th>
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-gray-100">
-                                    {rawPunches.map((punch, i) => (
-                                        <tr key={i}>
-                                            <td className="px-4 py-2 font-medium font-mono">{formatPunchTime(punch.timestamp)}</td>
-                                            <td className="px-4 py-2 text-gray-500">
-                                                <span className={`px-2 py-0.5 rounded text-xs ${
-                                                    punch.sn === 'MANUAL_ENTRY' ? 'bg-purple-50 text-purple-700' : 'bg-gray-100 text-gray-700'
-                                                }`}>
-                                                    {punch.sn === 'MANUAL_ENTRY' ? 'Manual' : `Device (${punch.sn || 'ZK'})`}
-                                                </span>
-                                            </td>
-                                            <td className="px-4 py-2 text-right">
-                                                <button 
-                                                    onClick={() => deletePunch(punch.timestamp)} 
-                                                    className="text-red-600 hover:text-red-800 text-xs font-semibold cursor-pointer"
-                                                >
-                                                    Delete
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))}
+                                <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                                    {rawPunches.map((punch, i) => {
+                                        const isPunchIn = punch.status === '0' || punch.status === 0;
+                                        const punchTimeFormatted = formatPunchTime(punch.timestamp);
+
+                                        return (
+                                            <tr key={punch.id || i} className="hover:bg-white dark:hover:bg-slate-800/40">
+                                                <td className="px-4 py-2.5 font-mono font-bold text-slate-900 dark:text-slate-100">
+                                                    {punchTimeFormatted}
+                                                </td>
+                                                <td className="px-4 py-2.5">
+                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                                        isPunchIn ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400' : 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-400'
+                                                    }`}>
+                                                        {isPunchIn ? 'Check-In' : 'Check-Out'}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400">
+                                                    {punch.is_manual || punch.sn === 'MANUAL_ENTRY' ? (
+                                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 font-semibold text-[10px]">
+                                                            Manual Edit
+                                                        </span>
+                                                    ) : (
+                                                        <span className="font-mono text-[11px]">{punch.sn || 'Device'}</span>
+                                                    )}
+                                                </td>
+                                                <td className="px-4 py-2.5 text-right space-x-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setEditingPunch({
+                                                            id: punch.id,
+                                                            oldTimestamp: punch.timestamp,
+                                                            time: punchTimeFormatted,
+                                                            status: String(punch.status || '0')
+                                                        })}
+                                                        className="text-blue-600 dark:text-blue-400 hover:underline font-semibold cursor-pointer text-xs"
+                                                    >
+                                                        Edit
+                                                    </button>
+                                                    <button 
+                                                        type="button"
+                                                        onClick={() => deletePunch(punch)} 
+                                                        className="text-red-600 dark:text-red-400 hover:underline font-semibold cursor-pointer text-xs"
+                                                    >
+                                                        Delete
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                                     {rawPunches.length === 0 && (
                                         <tr>
-                                            <td colSpan={3} className="px-4 py-4 text-center text-gray-500">No punches found for this date.</td>
+                                            <td colSpan={4} className="px-4 py-6 text-center text-slate-400 dark:text-slate-500">
+                                                No punches found for this date.
+                                            </td>
                                         </tr>
                                     )}
                                 </tbody>
                             </table>
                         </div>
 
-                        <form onSubmit={addManualPunch} className="flex gap-2">
-                            <input 
-                                type="time" 
-                                value={newPunchTime} 
-                                onChange={e => setNewPunchTime(e.target.value)} 
-                                required 
-                                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500" 
-                            />
-                            <button 
-                                type="submit" 
-                                disabled={isSavingPunch}
-                                className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
-                            >
-                                {isSavingPunch ? 'Saving...' : 'Add Punch'}
-                            </button>
-                        </form>
+                        {/* Inline Punch Editor (if editing existing punch) */}
+                        {editingPunch ? (
+                            <form onSubmit={handleSavePunchEdit} className="p-4 rounded-xl bg-blue-50/50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/60 space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs font-bold text-blue-700 dark:text-blue-300">
+                                        Modifying Existing Punch
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setEditingPunch(null)}
+                                        className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                                    >
+                                        Cancel Edit
+                                    </button>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">Time (UTC)</label>
+                                        <input 
+                                            type="time" 
+                                            value={editingPunch.time} 
+                                            onChange={e => setEditingPunch({ ...editingPunch, time: e.target.value })} 
+                                            required 
+                                            className="w-full px-3 py-2 rounded-lg bg-white dark:bg-[#0c121e] border border-slate-200 dark:border-slate-800 text-sm" 
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">Status Type</label>
+                                        <select
+                                            value={editingPunch.status}
+                                            onChange={e => setEditingPunch({ ...editingPunch, status: e.target.value })}
+                                            className="w-full px-3 py-2 rounded-lg bg-white dark:bg-[#0c121e] border border-slate-200 dark:border-slate-800 text-sm"
+                                        >
+                                            <option value="0">Check-In</option>
+                                            <option value="1">Check-Out</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <button
+                                    type="submit"
+                                    disabled={isSavingPunch}
+                                    className="w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-sm cursor-pointer disabled:opacity-50"
+                                >
+                                    {isSavingPunch ? 'Updating...' : 'Save Punch Update'}
+                                </button>
+                            </form>
+                        ) : (
+                            /* Add Punch Form */
+                            <form onSubmit={addManualPunch} className="space-y-3 pt-2">
+                                <span className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                                    Record New Manual Punch
+                                </span>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">Time (UTC)</label>
+                                        <input 
+                                            type="time" 
+                                            value={newPunchTime} 
+                                            onChange={e => setNewPunchTime(e.target.value)} 
+                                            required 
+                                            className="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-sm text-slate-900 dark:text-slate-100" 
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">Punch Type</label>
+                                        <select
+                                            value={newPunchStatus}
+                                            onChange={e => setNewPunchStatus(e.target.value)}
+                                            className="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-sm text-slate-900 dark:text-slate-100"
+                                        >
+                                            <option value="0">Check-In</option>
+                                            <option value="1">Check-Out</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <button 
+                                    type="submit" 
+                                    disabled={isSavingPunch}
+                                    className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-xl text-sm font-semibold shadow-sm shadow-blue-500/20 disabled:opacity-50 cursor-pointer transition-all"
+                                >
+                                    {isSavingPunch ? 'Saving Punch...' : 'Add Manual Punch'}
+                                </button>
+                            </form>
+                        )}
 
-                        <div className="mt-6 flex justify-end">
+                        <div className="pt-2 border-t border-slate-200 dark:border-slate-800/80 flex justify-end">
                             <button 
                                 type="button"
                                 onClick={() => setSelectedRowForPunches(null)} 
-                                className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-200 cursor-pointer"
+                                className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-sm font-medium transition-colors cursor-pointer"
                             >
-                                Close
+                                Done
                             </button>
                         </div>
                     </div>

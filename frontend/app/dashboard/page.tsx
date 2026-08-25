@@ -1,41 +1,221 @@
 'use client';
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { 
+    MonitorSmartphone, 
+    Users, 
+    CalendarCheck, 
+    Clock, 
+    ArrowRight, 
+    Activity, 
+    FileSpreadsheet, 
+    Plus, 
+    RotateCw,
+    ShieldCheck
+} from 'lucide-react';
+import { AttendanceLog, Device, Employee } from '@/types';
+import { formatPunchTime } from '@/lib/utils/formatTime';
 
 export default function DashboardOverview() {
-    const [stats, setStats] = useState({ devices: 0, employees: 0 });
+    const [stats, setStats] = useState({ 
+        devices: 0, 
+        onlineDevices: 0, 
+        employees: 0, 
+        todayPunches: 0 
+    });
+    const [recentLogs, setRecentLogs] = useState<AttendanceLog[]>([]);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         const fetchData = async () => {
+            setLoading(true);
             try {
                 const [devicesRes, employeesRes] = await Promise.all([
                     fetch('/api/devices'),
                     fetch('/api/employees')
                 ]);
-                const devices = await devicesRes.json();
-                const employees = await employeesRes.json();
+                
+                const devices: Device[] = devicesRes.ok ? await devicesRes.json() : [];
+                const employees: Employee[] = employeesRes.ok ? await employeesRes.json() : [];
+
+                const onlineCount = devices.filter(d => {
+                    const diff = new Date().getTime() - new Date(d.last_active).getTime();
+                    return diff < 5 * 60 * 1000;
+                }).length;
+
                 setStats({ 
-                    devices: Array.isArray(devices) ? devices.length : 0, 
-                    employees: Array.isArray(employees) ? employees.length : 0 
+                    devices: Array.isArray(devices) ? devices.length : 0,
+                    onlineDevices: onlineCount,
+                    employees: Array.isArray(employees) ? employees.length : 0,
+                    todayPunches: 0
                 });
-            } catch (err) {
-                setStats({ devices: 0, employees: 0 });
+            } catch (err: unknown) {
+                console.error('Error loading dashboard stats:', err);
+            } finally {
+                setLoading(false);
             }
         };
         fetchData();
     }, []);
 
     return (
-        <div className="space-y-6">
-            <h2 className="text-2xl font-bold">Overview</h2>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-                    <p className="text-gray-500 text-sm font-medium">Total Devices</p>
-                    <p className="text-3xl font-bold mt-2">{stats.devices}</p>
+        <div className="space-y-8 animate-in fade-in duration-200">
+            {/* Header Banner */}
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-2 border-b border-slate-200 dark:border-slate-800/60">
+                <div>
+                    <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+                        System Overview
+                    </h2>
+                    <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                        Biometric terminal synchronization and real-time attendance monitoring.
+                    </p>
                 </div>
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-                    <p className="text-gray-500 text-sm font-medium">Enrolled Employees</p>
-                    <p className="text-3xl font-bold mt-2">{stats.employees}</p>
+
+                <div className="flex items-center gap-3">
+                    <Link
+                        href="/dashboard/live"
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold shadow-sm shadow-blue-500/20 transition-all cursor-pointer"
+                    >
+                        <Activity size={16} />
+                        <span>Live Monitor</span>
+                    </Link>
+                    <Link
+                        href="/dashboard/reports"
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700/80 text-slate-700 dark:text-slate-200 text-sm font-semibold transition-all cursor-pointer"
+                    >
+                        <FileSpreadsheet size={16} />
+                        <span>Reports</span>
+                    </Link>
                 </div>
+            </div>
+
+            {/* Stat Cards Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                {/* Total Devices */}
+                <div className="p-6 rounded-2xl bg-white dark:bg-[#0c121e] border border-slate-200 dark:border-slate-800/80 shadow-xs flex flex-col justify-between transition-all hover:border-slate-300 dark:hover:border-slate-700">
+                    <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Terminals</span>
+                        <div className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-100 dark:border-blue-900/50">
+                            <MonitorSmartphone size={20} />
+                        </div>
+                    </div>
+                    <div className="mt-4">
+                        <p className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+                            {loading ? '...' : stats.devices}
+                        </p>
+                        <div className="flex items-center gap-1.5 mt-2">
+                            <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
+                            <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                                {stats.onlineDevices} Online / {stats.devices - stats.onlineDevices} Offline
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Enrolled Employees */}
+                <div className="p-6 rounded-2xl bg-white dark:bg-[#0c121e] border border-slate-200 dark:border-slate-800/80 shadow-xs flex flex-col justify-between transition-all hover:border-slate-300 dark:hover:border-slate-700">
+                    <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Employees</span>
+                        <div className="p-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/50">
+                            <Users size={20} />
+                        </div>
+                    </div>
+                    <div className="mt-4">
+                        <p className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+                            {loading ? '...' : stats.employees}
+                        </p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-2">
+                            Registered Biometric Profiles
+                        </p>
+                    </div>
+                </div>
+
+                {/* System Status */}
+                <div className="p-6 rounded-2xl bg-white dark:bg-[#0c121e] border border-slate-200 dark:border-slate-800/80 shadow-xs flex flex-col justify-between transition-all hover:border-slate-300 dark:hover:border-slate-700">
+                    <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Security Guard</span>
+                        <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/50">
+                            <ShieldCheck size={20} />
+                        </div>
+                    </div>
+                    <div className="mt-4">
+                        <p className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
+                            Active
+                        </p>
+                        <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium mt-2">
+                            Session Authenticated
+                        </p>
+                    </div>
+                </div>
+
+                {/* ADMS Protocol */}
+                <div className="p-6 rounded-2xl bg-white dark:bg-[#0c121e] border border-slate-200 dark:border-slate-800/80 shadow-xs flex flex-col justify-between transition-all hover:border-slate-300 dark:hover:border-slate-700">
+                    <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">ADMS Protocol</span>
+                        <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-100 dark:border-amber-900/50">
+                            <Clock size={20} />
+                        </div>
+                    </div>
+                    <div className="mt-4">
+                        <p className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
+                            Port 80 / HTTP
+                        </p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-2">
+                            Fail-Closed Ingestion Active
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            {/* Quick Actions & Navigation Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <Link
+                    href="/dashboard/live"
+                    className="p-6 rounded-2xl bg-white dark:bg-[#0c121e] border border-slate-200 dark:border-slate-800/80 shadow-xs hover:border-blue-500 dark:hover:border-blue-500 group transition-all"
+                >
+                    <div className="flex items-center justify-between mb-3">
+                        <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
+                            <Activity size={22} />
+                        </div>
+                        <ArrowRight size={18} className="text-slate-400 group-hover:text-blue-500 group-hover:translate-x-1 transition-all" />
+                    </div>
+                    <h3 className="text-base font-bold text-slate-900 dark:text-white">Live Attendance Stream</h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                        Watch terminal scans in real time with auto-polling and instant log delivery.
+                    </p>
+                </Link>
+
+                <Link
+                    href="/dashboard/reports"
+                    className="p-6 rounded-2xl bg-white dark:bg-[#0c121e] border border-slate-200 dark:border-slate-800/80 shadow-xs hover:border-blue-500 dark:hover:border-blue-500 group transition-all"
+                >
+                    <div className="flex items-center justify-between mb-3">
+                        <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400">
+                            <FileSpreadsheet size={22} />
+                        </div>
+                        <ArrowRight size={18} className="text-slate-400 group-hover:text-blue-500 group-hover:translate-x-1 transition-all" />
+                    </div>
+                    <h3 className="text-base font-bold text-slate-900 dark:text-white">Reports & Time Cards</h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                        Export 1-page monthly PDF timecards and multi-tab Excel workbooks.
+                    </p>
+                </Link>
+
+                <Link
+                    href="/dashboard/employees"
+                    className="p-6 rounded-2xl bg-white dark:bg-[#0c121e] border border-slate-200 dark:border-slate-800/80 shadow-xs hover:border-blue-500 dark:hover:border-blue-500 group transition-all"
+                >
+                    <div className="flex items-center justify-between mb-3">
+                        <div className="p-3 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
+                            <Users size={22} />
+                        </div>
+                        <ArrowRight size={18} className="text-slate-400 group-hover:text-blue-500 group-hover:translate-x-1 transition-all" />
+                    </div>
+                    <h3 className="text-base font-bold text-slate-900 dark:text-white">Employee Management</h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                        Add, edit, and organize staff across company departments and branches.
+                    </p>
+                </Link>
             </div>
         </div>
     );

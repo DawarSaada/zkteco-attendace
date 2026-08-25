@@ -26,8 +26,14 @@ export interface AttendanceLog {
     status?: string | number | null;
     verify_mode?: string | number | null;
     work_code?: number | null;
+    is_manual?: boolean;
+    edited_by?: string | null;
     created_at?: string;
-    employees?: { full_name: string } | null;
+    employees?: { 
+        full_name: string;
+        branch?: string | null;
+        department?: string | null;
+    } | null;
 }
 
 export interface Shift {
@@ -49,6 +55,8 @@ export interface EmployeeShift {
     } | null;
     employees?: {
         full_name?: string;
+        branch?: string | null;
+        department?: string | null;
     } | null;
 }
 
@@ -56,7 +64,7 @@ export interface DeviceCommand {
     id?: string;
     sn: string;
     command_str: string;
-    status: 'PENDING' | 'EXECUTED' | string;
+    status: 'PENDING' | 'SENT' | 'ACKNOWLEDGED' | 'EXECUTED' | 'FAILED' | string;
     created_at?: string;
     executed_at?: string | null;
 }
@@ -83,12 +91,16 @@ export interface RawPunch {
     status?: string | number | null;
     verify_mode?: string | number | null;
     work_code?: number | null;
+    is_manual?: boolean;
+    edited_by?: string | null;
 }
 
 export interface GroupedReportEmployee {
     pin: string;
     name: string;
     department: string;
+    branch?: string;
     records: DailyAttendanceSummary[];
     totalMinutes?: number;
+    daysPresent?: number;
 }

@@ -34,10 +34,10 @@ export async function POST(request: Request) {
         // "ID=1&Return=0&CMD=DATA QUERY ATTLOG"
         // or "ID=1\nReturn=0"
         const isSuccess = bodyText.includes('Return=0') || bodyText.includes('SUCCESS') || bodyText.includes('OK');
-        const nextStatus = isSuccess ? 'EXECUTED' : 'FAILED';
+        const nextStatus = isSuccess ? 'ACKNOWLEDGED' : 'FAILED';
 
         if (SN) {
-            // Update any SENT commands for this device to EXECUTED / FAILED
+            // Update SENT commands for this device to ACKNOWLEDGED (or FAILED)
             await supabase
                 .from('device_commands')
                 .update({ 
@@ -50,7 +50,7 @@ export async function POST(request: Request) {
 
         return new NextResponse("OK\n", { status: 200 });
     } catch (err: unknown) {
-        console.error('devicecmd handler error:', err);
+        console.error('[devicecmd] handler error:', err);
         return new NextResponse("OK\n", { status: 200 });
     }
 }
