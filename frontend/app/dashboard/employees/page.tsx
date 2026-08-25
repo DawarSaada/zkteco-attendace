@@ -1,21 +1,30 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { Employee } from '@/types';
 
 export default function EmployeesPage() {
-    const [employees, setEmployees] = useState<any[]>([]);
+    const [employees, setEmployees] = useState<Employee[]>([]);
     const [pin, setPin] = useState('');
     const [fullName, setFullName] = useState('');
     const [department, setDepartment] = useState('');
+    const [branch, setBranch] = useState('');
     const [designation, setDesignation] = useState('');
     const [errorMsg, setErrorMsg] = useState('');
     const [successMsg, setSuccessMsg] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
 
     const fetchEmployees = async () => {
         try {
             const res = await fetch('/api/employees');
-            const data = await res.json();
-            setEmployees(Array.isArray(data) ? data : []);
-        } catch (err) {
+            if (res.ok) {
+                const data = await res.json();
+                setEmployees(Array.isArray(data) ? data : []);
+            } else {
+                setErrorMsg('Failed to fetch employees');
+                setEmployees([]);
+            }
+        } catch (err: any) {
+            setErrorMsg(err.message || 'Error occurred fetching employees');
             setEmployees([]);
         }
     };
@@ -28,12 +37,19 @@ export default function EmployeesPage() {
         e.preventDefault();
         setErrorMsg('');
         setSuccessMsg('');
+        setIsSaving(true);
         
         try {
             const res = await fetch('/api/employees', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ pin, full_name: fullName, department, designation })
+                body: JSON.stringify({ 
+                    pin, 
+                    full_name: fullName, 
+                    department, 
+                    branch, 
+                    designation 
+                })
             });
             const data = await res.json();
             
@@ -44,11 +60,14 @@ export default function EmployeesPage() {
                 setPin('');
                 setFullName('');
                 setDepartment('');
+                setBranch('');
                 setDesignation('');
                 fetchEmployees(); // Refresh list
             }
         } catch (err: any) {
             setErrorMsg(err.message || 'Error occurred.');
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -68,7 +87,7 @@ export default function EmployeesPage() {
                                 required 
                                 value={pin} 
                                 onChange={(e) => setPin(e.target.value)} 
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" 
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm" 
                                 placeholder="e.g. 101"
                             />
                         </div>
@@ -79,7 +98,7 @@ export default function EmployeesPage() {
                                 required 
                                 value={fullName} 
                                 onChange={(e) => setFullName(e.target.value)} 
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" 
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm" 
                                 placeholder="John Doe"
                             />
                         </div>
@@ -89,8 +108,18 @@ export default function EmployeesPage() {
                                 type="text" 
                                 value={department} 
                                 onChange={(e) => setDepartment(e.target.value)} 
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" 
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm" 
                                 placeholder="e.g. Engineering"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Branch (Optional)</label>
+                            <input 
+                                type="text" 
+                                value={branch} 
+                                onChange={(e) => setBranch(e.target.value)} 
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm" 
+                                placeholder="e.g. Headquarters / North Branch"
                             />
                         </div>
                         <div>
@@ -99,16 +128,20 @@ export default function EmployeesPage() {
                                 type="text" 
                                 value={designation} 
                                 onChange={(e) => setDesignation(e.target.value)} 
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" 
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm" 
                                 placeholder="e.g. Software Engineer"
                             />
                         </div>
                         
-                        {errorMsg && <p className="text-sm text-red-600">{errorMsg}</p>}
-                        {successMsg && <p className="text-sm text-green-600">{successMsg}</p>}
+                        {errorMsg && <p className="text-sm text-red-600 font-medium">{errorMsg}</p>}
+                        {successMsg && <p className="text-sm text-green-600 font-medium">{successMsg}</p>}
                         
-                        <button type="submit" className="w-full bg-blue-600 text-white font-semibold py-2 rounded-lg hover:bg-blue-700">
-                            Save Employee
+                        <button 
+                            type="submit" 
+                            disabled={isSaving}
+                            className="w-full bg-blue-600 text-white font-semibold py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm cursor-pointer transition-colors"
+                        >
+                            {isSaving ? 'Saving...' : 'Save Employee'}
                         </button>
                     </form>
                 </div>
@@ -121,26 +154,33 @@ export default function EmployeesPage() {
                                 <th className="px-6 py-4 text-sm font-medium text-gray-500">PIN</th>
                                 <th className="px-6 py-4 text-sm font-medium text-gray-500">Name</th>
                                 <th className="px-6 py-4 text-sm font-medium text-gray-500">Department</th>
+                                <th className="px-6 py-4 text-sm font-medium text-gray-500">Branch</th>
                                 <th className="px-6 py-4 text-sm font-medium text-gray-500">Designation</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
                             {employees.map(emp => (
-                                <tr key={emp.pin} className="hover:bg-gray-50 cursor-pointer" onClick={() => {
-                                    setPin(emp.pin);
-                                    setFullName(emp.full_name);
-                                    setDepartment(emp.department || '');
-                                    setDesignation(emp.designation || '');
-                                }}>
-                                    <td className="px-6 py-4 font-medium">{emp.pin}</td>
-                                    <td className="px-6 py-4">{emp.full_name}</td>
-                                    <td className="px-6 py-4 text-gray-500">{emp.department || '-'}</td>
-                                    <td className="px-6 py-4 text-gray-500">{emp.designation || '-'}</td>
+                                <tr 
+                                    key={emp.pin} 
+                                    className="hover:bg-gray-50 cursor-pointer transition-colors" 
+                                    onClick={() => {
+                                        setPin(emp.pin);
+                                        setFullName(emp.full_name);
+                                        setDepartment(emp.department || '');
+                                        setBranch(emp.branch || '');
+                                        setDesignation(emp.designation || '');
+                                    }}
+                                >
+                                    <td className="px-6 py-4 font-medium text-sm">{emp.pin}</td>
+                                    <td className="px-6 py-4 text-sm font-medium">{emp.full_name}</td>
+                                    <td className="px-6 py-4 text-sm text-gray-500">{emp.department || '-'}</td>
+                                    <td className="px-6 py-4 text-sm text-blue-600">{emp.branch || '-'}</td>
+                                    <td className="px-6 py-4 text-sm text-gray-500">{emp.designation || '-'}</td>
                                 </tr>
                             ))}
                             {employees.length === 0 && (
                                 <tr>
-                                    <td colSpan={4} className="px-6 py-8 text-center text-gray-500">No employees found.</td>
+                                    <td colSpan={5} className="px-6 py-8 text-center text-gray-500 text-sm">No employees found.</td>
                                 </tr>
                             )}
                         </tbody>

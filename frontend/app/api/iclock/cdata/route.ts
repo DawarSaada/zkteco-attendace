@@ -9,7 +9,7 @@ function getSupabase() {
     );
 }
 
-// Shared security check
+// Shared security check for ADMS communication
 function isAuthorized(request: Request) {
     const { searchParams } = new URL(request.url);
     const token = searchParams.get('token');
@@ -26,7 +26,7 @@ export async function GET(request: Request) {
         return new NextResponse("Unauthorized\n", { status: 401 });
     }
     
-    // Respond with ok to let the device know the server is ready
+    // Respond with OK to let the device know the server is ready
     return new NextResponse("OK\n", { status: 200 });
 }
 
@@ -55,17 +55,18 @@ export async function POST(request: Request) {
             if (!line) continue;
             const parts = line.split('\t');
             if (parts.length >= 2) {
-                const pin = parts[0];
-                const timestamp = parts[1];
-                const status = parts[2] || '0';
-                const verifyMode = parts[3] || '0';
+                const pin = parts[0].trim();
+                const timestamp = parts[1].trim();
+                const status = parts[2]?.trim() || '0';
+                const verifyMode = parts[3]?.trim() || '0';
+                const workCode = parts[4] ? parseInt(parts[4].trim(), 10) || 0 : 0;
 
                 // Ensure the employee PIN exists
                 await supabase
                     .from('employees')
                     .upsert({ pin: pin, full_name: `User ${pin}` }, { onConflict: 'pin', ignoreDuplicates: true });
 
-                // Insert into Supabase
+                // Insert into Supabase with work_code
                 const { error } = await supabase
                     .from('attendance_logs')
                     .insert([{
@@ -73,7 +74,8 @@ export async function POST(request: Request) {
                         pin: pin,
                         timestamp: new Date(timestamp).toISOString(),
                         status: status,
-                        verify_mode: verifyMode
+                        verify_mode: verifyMode,
+                        work_code: workCode
                     }]);
 
                 if (error && error.code !== '23505') { 
@@ -88,8 +90,8 @@ export async function POST(request: Request) {
             if (!line) continue;
             const parts = line.split('\t');
             if (parts.length >= 2) {
-                const pin = parts[0];
-                const name = parts[1] || `User ${pin}`;
+                const pin = parts[0].trim();
+                const name = parts[1]?.trim() || `User ${pin}`;
                 
                 await supabase
                     .from('employees')
