@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -172,14 +172,19 @@ export default function ReportsPage() {
         window.location.href = `/api/reports/export?start=${startDate}&end=${endDate}&pin=${filterPin}&branch=${filterBranch}`;
     };
 
-    // 6. PDF Export: 1 Employee Per Page (Top-to-Bottom Chronological + Summary Statistics)
+    // 6. PDF Export: Exactly 1 Page Per Employee Per Month (Never cross onto a 2nd page)
     const handleExportPDF = () => {
         if (reports.length === 0) {
             showToast('No attendance records available to generate PDF.', 'error');
             return;
         }
 
-        const doc = new jsPDF('landscape');
+        // A4 Landscape: 297mm x 210mm
+        const doc = new jsPDF({
+            orientation: 'landscape',
+            unit: 'mm',
+            format: 'a4'
+        });
 
         // Group rows by employee PIN
         const groupedReports = reports.reduce((acc, row) => {
@@ -216,23 +221,24 @@ export default function ReportsPage() {
 
         employees.forEach((emp, index) => {
             if (index > 0) {
-                doc.addPage();
+                doc.addPage('a4', 'landscape');
             }
 
-            // 1. Employee Header Information
-            doc.setFontSize(14);
+            // Compact Header at top of page
+            doc.setFontSize(13);
             doc.setFont('helvetica', 'bold');
-            doc.text('Employee Time Card Report', 14, 14);
+            doc.text('Monthly Employee Time Card Report', 10, 9);
 
-            doc.setFontSize(10);
+            doc.setFontSize(8.5);
             doc.setFont('helvetica', 'normal');
-            doc.text(`Period: ${startDate} to ${endDate}`, 14, 21);
+            doc.text(`Period: ${startDate} to ${endDate}`, 10, 14);
 
             const deptText = emp.department ? ` | Dept: ${emp.department}` : '';
             const branchText = emp.branch ? ` | Branch: ${emp.branch}` : '';
-            doc.text(`Employee ID: ${emp.pin} | Name: ${emp.name}${deptText}${branchText}`, 14, 27);
+            doc.setFont('helvetica', 'bold');
+            doc.text(`Employee ID: ${emp.pin} | Name: ${emp.name}${deptText}${branchText}`, 10, 18.5);
 
-            // 2. Chronological Top-to-Bottom Table
+            // Table Columns
             const tableColumn = [
                 "Date", "Day", "Schedule In", "Schedule Out", 
                 "Clock In", "Clock Out", "Total Hours", "Device", "Branch"
@@ -240,7 +246,7 @@ export default function ReportsPage() {
 
             const tableRows = emp.records.map((row) => {
                 const pDate = new Date(row.punch_date);
-                const weekday = format(pDate, 'EEEE');
+                const weekday = format(pDate, 'EEE'); // Abbreviated Day for clean width
                 const clockIn = formatPunchTime(row.check_in);
                 const clockOut = formatPunchTime(row.check_out);
                 const totalHours = formatTotalHours(row.check_in, row.check_out);
@@ -258,14 +264,14 @@ export default function ReportsPage() {
                 ];
             });
 
-            // 3. Summary Statistics Row
+            // Summary Statistics Row
             const totalHrs = Math.floor(emp.totalMinutes / 60);
             const totalMins = emp.totalMinutes % 60;
             const formattedTotalHours = `${totalHrs}h ${totalMins}m`;
 
             tableRows.push([
-                'Total Days Present:',
-                `${emp.daysPresent} days`,
+                'Summary:',
+                `Days: ${emp.daysPresent}`,
                 '',
                 '',
                 'Total Hours:',
@@ -275,27 +281,52 @@ export default function ReportsPage() {
                 ''
             ]);
 
+            // Precise density scaling: up to 32 rows fit easily on 1 landscape A4 page (210mm height)
+            const rowCount = tableRows.length;
+            const isDense = rowCount > 18;
+            const fontSize = isDense ? 6.5 : 7.5;
+            const cellPadding = isDense ? 0.8 : 1.3;
+            const minCellHeight = isDense ? 3.6 : 4.4;
+
             autoTable(doc, {
                 head: [tableColumn],
                 body: tableRows,
-                startY: 32,
+                startY: 21,
+                margin: { top: 21, bottom: 6, left: 8, right: 8 },
                 theme: 'grid',
+                pageBreak: 'avoid', // Guarantee no unwanted page breaks
                 styles: { 
-                    fontSize: 8,
-                    lineColor: [200, 200, 200],
+                    fontSize: fontSize,
+                    cellPadding: cellPadding,
+                    minCellHeight: minCellHeight,
+                    overflow: 'ellipsize',
+                    lineColor: [210, 210, 210],
                     lineWidth: 0.1,
                     textColor: [30, 30, 30]
                 },
                 headStyles: { 
                     fillColor: [240, 244, 248], 
                     textColor: [20, 20, 20],
-                    fontStyle: 'bold'
+                    fontStyle: 'bold',
+                    fontSize: fontSize + 0.5,
+                    cellPadding: cellPadding + 0.2
+                },
+                columnStyles: {
+                    0: { cellWidth: 26 }, // Date
+                    1: { cellWidth: 16 }, // Day
+                    2: { cellWidth: 24 }, // Schedule In
+                    3: { cellWidth: 24 }, // Schedule Out
+                    4: { cellWidth: 22 }, // Clock In
+                    5: { cellWidth: 22 }, // Clock Out
+                    6: { cellWidth: 24 }, // Total Hours
+                    7: { cellWidth: 'auto' }, // Device
+                    8: { cellWidth: 'auto' }  // Branch
                 }
             });
         });
 
         doc.save(`TimeCards_${startDate}_to_${endDate}.pdf`);
-        showToast('PDF exported successfully!');
+        showToast('PDF exported successfully (1 page per employee)!');
     };
 
     // Calculate unique branch list from both employees and devices
@@ -304,6 +335,37 @@ export default function ReportsPage() {
         ...devicesList.map(d => d.branch)
     ].filter(Boolean) as string[];
     const uniqueBranches = Array.from(new Set(allBranches));
+
+    // Combine all unique employees from both API list and active report records
+    // This ensures every employee with records or in the database appears with name and PIN number
+    const combinedEmployees = useMemo(() => {
+        const empMap = new Map<string, { pin: string; full_name: string; branch?: string }>();
+        
+        employeesList.forEach(e => {
+            empMap.set(e.pin, {
+                pin: e.pin,
+                full_name: e.full_name || '',
+                branch: e.branch || ''
+            });
+        });
+
+        reports.forEach(r => {
+            if (!empMap.has(r.pin)) {
+                empMap.set(r.pin, {
+                    pin: r.pin,
+                    full_name: r.full_name || '',
+                    branch: r.branch || ''
+                });
+            }
+        });
+
+        return Array.from(empMap.values()).sort((a, b) => {
+            if (a.full_name && b.full_name) {
+                return a.full_name.localeCompare(b.full_name);
+            }
+            return a.pin.localeCompare(b.pin, undefined, { numeric: true });
+        });
+    }, [employeesList, reports]);
 
     return (
         <div className="space-y-6">
@@ -318,12 +380,12 @@ export default function ReportsPage() {
 
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <h2 className="text-2xl font-bold">Attendance Report</h2>
-                <div className="flex flex-wrap gap-4 items-center">
+                <div className="flex flex-wrap gap-3 items-center">
                     {/* Branch Filter */}
                     <select 
                         value={filterBranch} 
                         onChange={(e) => setFilterBranch(e.target.value)}
-                        className="border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm"
+                        className="border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm"
                     >
                         <option value="all">All Branches</option>
                         {uniqueBranches.map(branch => (
@@ -331,25 +393,32 @@ export default function ReportsPage() {
                         ))}
                     </select>
 
-                    {/* Employee Filter */}
+                    {/* Employee Filter: Displays both Employee Name and PIN Number */}
                     <select 
                         value={filterPin} 
                         onChange={(e) => setFilterPin(e.target.value)}
-                        className="border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm"
+                        className="border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm max-w-xs"
                     >
-                        <option value="all">All Employees</option>
-                        {employeesList
+                        <option value="all">All Employees ({combinedEmployees.length})</option>
+                        {combinedEmployees
                             .filter(e => filterBranch === 'all' || e.branch === filterBranch)
-                            .map(emp => (
-                                <option key={emp.pin} value={emp.pin}>{emp.full_name || emp.pin}</option>
-                            ))}
+                            .map(emp => {
+                                const displayName = emp.full_name 
+                                    ? `${emp.full_name} (${emp.pin})` 
+                                    : `PIN: ${emp.pin}`;
+                                return (
+                                    <option key={emp.pin} value={emp.pin}>
+                                        {displayName}
+                                    </option>
+                                );
+                            })}
                     </select>
 
                     {/* Range Type */}
                     <select 
                         value={rangeType} 
                         onChange={(e) => setRangeType(e.target.value)}
-                        className="border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm"
+                        className="border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm"
                     >
                         <option value="daily">Daily</option>
                         <option value="weekly">This Week</option>
@@ -419,7 +488,7 @@ export default function ReportsPage() {
                                 <tr key={idx} className="hover:bg-gray-50">
                                     <td className="px-6 py-4 font-medium">
                                         <div>{row.full_name || row.pin}</div>
-                                        {row.branch && <div className="text-xs text-gray-400">Branch: {row.branch}</div>}
+                                        <div className="text-xs text-gray-400">PIN: {row.pin}{row.branch ? ` &bull; ${row.branch}` : ''}</div>
                                     </td>
                                     <td className="px-6 py-4 text-gray-500">{row.punch_date}</td>
                                     <td className="px-6 py-4 text-gray-500 font-mono text-sm">{shiftStr}</td>
