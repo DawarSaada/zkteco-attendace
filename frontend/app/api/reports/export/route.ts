@@ -4,6 +4,18 @@ import { requireAuthUser, getErrorMessage } from '@/lib/auth-guard';
 import { formatPunchTime, formatTotalHours, calculateMinutes } from '@/lib/utils/formatTime';
 import * as XLSX from 'xlsx';
 import { DailyAttendanceSummary } from '@/types';
+import { format } from 'date-fns';
+
+function generateDateRange(start: string, end: string): string[] {
+    const dates: string[] = [];
+    const curr = new Date(`${start}T00:00:00Z`);
+    const last = new Date(`${end}T00:00:00Z`);
+    while (curr <= last) {
+        dates.push(curr.toISOString().substring(0, 10));
+        curr.setUTCDate(curr.getUTCDate() + 1);
+    }
+    return dates;
+}
 
 export async function GET(request: Request) {
     const auth = await requireAuthUser();
@@ -21,6 +33,7 @@ export async function GET(request: Request) {
             return NextResponse.json({ error: 'Missing dates' }, { status: 400 });
         }
 
+        // 1. Fetch attendance records
         let query = supabase
             .from('daily_attendance_summary')
             .select('*')
@@ -36,63 +49,119 @@ export async function GET(request: Request) {
             query = query.eq('branch', branch);
         }
 
-        const { data, error } = await query;
+        const [attRes, empRes] = await Promise.all([
+            query,
+            supabase.from('employees').select('*')
+        ]);
 
-        if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+        if (attRes.error) return NextResponse.json({ error: attRes.error.message }, { status: 500 });
 
-        const recordsList = (data || []) as DailyAttendanceSummary[];
+        const rawAttendance = (attRes.data || []) as DailyAttendanceSummary[];
+        const allEmployees = (empRes.data || []) as Array<{ pin: string; full_name: string; branch?: string; department?: string }>;
 
-        // Group rows by employee PIN (fallback to full_name)
-        const groupedData = recordsList.reduce((acc: Record<string, {
-            pin: string;
-            name: string;
-            department: string;
-            branch: string;
-            records: Record<string, string>[];
-            totalMinutes: number;
-            daysPresent: number;
-        }>, row: DailyAttendanceSummary) => {
-            const empKey = row.pin || row.full_name || 'unknown';
-            const empName = row.full_name || `PIN ${row.pin}`;
-            
-            if (!acc[empKey]) {
-                acc[empKey] = {
-                    pin: row.pin,
-                    name: empName,
-                    department: row.department || '',
-                    branch: row.branch || '',
-                    records: [],
-                    totalMinutes: 0,
-                    daysPresent: 0
-                };
+        // 2. Merge multi-punch records per employee per date
+        const attendanceByEmpDate = new Map<string, DailyAttendanceSummary>();
+        rawAttendance.forEach((row) => {
+            const key = `${row.pin}_${row.punch_date}`;
+            if (!attendanceByEmpDate.has(key)) {
+                attendanceByEmpDate.set(key, { ...row });
+            } else {
+                const existing = attendanceByEmpDate.get(key)!;
+                if (row.check_in && (!existing.check_in || new Date(row.check_in) < new Date(existing.check_in))) {
+                    existing.check_in = row.check_in;
+                }
+                if (row.check_out && (!existing.check_out || new Date(row.check_out) > new Date(existing.check_out))) {
+                    existing.check_out = row.check_out;
+                }
+                existing.total_punches = (existing.total_punches || 1) + (row.total_punches || 1);
+                if (!existing.branch && row.branch) existing.branch = row.branch;
+                if (!existing.device_name && row.device_name) existing.device_name = row.device_name;
+                if (!existing.full_name && row.full_name) existing.full_name = row.full_name;
             }
+        });
 
-            const clockInFormatted = formatPunchTime(row.check_in);
-            const clockOutFormatted = formatPunchTime(row.check_out);
-            const totalHoursFormatted = formatTotalHours(row.check_in, row.check_out);
-            const rowMinutes = calculateMinutes(row.check_in, row.check_out);
-
-            acc[empKey].totalMinutes += rowMinutes;
-            if (row.check_in) {
-                acc[empKey].daysPresent += 1;
-            }
-
-            acc[empKey].records.push({
-                'Date': row.punch_date,
-                'Check In': clockInFormatted,
-                'Check Out': clockOutFormatted,
-                'Total Hours': totalHoursFormatted,
-                'Device Name': row.device_name || '-',
-                'Branch': row.branch || acc[empKey].branch || '-'
+        // 3. Build list of targeted employees
+        const empMap = new Map<string, { pin: string; name: string; department: string; branch: string; defaultShiftStart?: string; defaultShiftEnd?: string }>();
+        
+        allEmployees.forEach(e => {
+            if (pin && pin !== 'all' && e.pin !== pin) return;
+            if (branch && branch !== 'all' && e.branch !== branch) return;
+            empMap.set(e.pin, {
+                pin: e.pin,
+                name: e.full_name || `PIN ${e.pin}`,
+                department: e.department || '',
+                branch: e.branch || ''
             });
+        });
 
-            return acc;
-        }, {});
+        // Add any employees found in attendance logs not in employees table
+        rawAttendance.forEach(r => {
+            if (!empMap.has(r.pin)) {
+                empMap.set(r.pin, {
+                    pin: r.pin,
+                    name: r.full_name || `PIN ${r.pin}`,
+                    department: r.department || '',
+                    branch: r.branch || ''
+                });
+            }
+        });
 
+        const allDates = generateDateRange(startDate, endDate);
         const workbook = XLSX.utils.book_new();
 
-        Object.values(groupedData).forEach((empInfo) => {
-            // Truncate and sanitize sheet name (max 31 characters for Excel)
+        empMap.forEach((empInfo) => {
+            let totalMinutes = 0;
+            let daysPresent = 0;
+            const records: Record<string, string>[] = [];
+
+            // Complete calendar grid: Every single date in the period is included
+            allDates.forEach((dateStr) => {
+                const pDate = new Date(`${dateStr}T00:00:00Z`);
+                const weekday = format(pDate, 'EEEE');
+                const key = `${empInfo.pin}_${dateStr}`;
+                const log = attendanceByEmpDate.get(key);
+
+                if (log && (log.check_in || log.check_out)) {
+                    daysPresent += 1;
+                    const mins = calculateMinutes(log.check_in, log.check_out);
+                    totalMinutes += mins;
+
+                    const hasBothPunches = log.check_in && log.check_out && log.check_in !== log.check_out;
+                    const clockIn = formatPunchTime(log.check_in);
+                    const clockOut = hasBothPunches ? formatPunchTime(log.check_out) : '';
+                    const totalHours = hasBothPunches ? formatTotalHours(log.check_in, log.check_out) : '0h 0m';
+
+                    records.push({
+                        'Date': dateStr,
+                        'Day': weekday,
+                        'Schedule In': log.shift_start ? log.shift_start.substring(0, 5) : '--:--',
+                        'Schedule Out': log.shift_end ? log.shift_end.substring(0, 5) : '--:--',
+                        'Check In': clockIn,
+                        'Check Out': clockOut,
+                        'Total Hours': totalHours,
+                        'Device Name': log.device_name || '-',
+                        'Branch': log.branch || empInfo.branch || '-'
+                    });
+                } else {
+                    // Day with no fingerprints / attendance: punch fields are left cleanly EMPTY
+                    records.push({
+                        'Date': dateStr,
+                        'Day': weekday,
+                        'Schedule In': '--:--',
+                        'Schedule Out': '--:--',
+                        'Check In': '',
+                        'Check Out': '',
+                        'Total Hours': '',
+                        'Device Name': '',
+                        'Branch': empInfo.branch || '-'
+                    });
+                }
+            });
+
+            const totalHrs = Math.floor(totalMinutes / 60);
+            const totalMins = totalMinutes % 60;
+            const formattedTotalHours = `${totalHrs}h ${totalMins}m`;
+
             const rawSheetName = empInfo.name || `PIN_${empInfo.pin}`;
             const safeSheetName = rawSheetName.replace(/[\\/?*[\]:]/g, '').substring(0, 31) || `PIN_${empInfo.pin}`;
 
@@ -102,20 +171,19 @@ export async function GET(request: Request) {
             const headerData = [
                 [`Start Date: ${startDate}    End Date: ${endDate}`],
                 [`Employee ID: ${empInfo.pin}, Name: ${empInfo.name}${deptString}${branchString}`],
-                [] // Spacer row
+                []
             ];
 
-            const totalHrs = Math.floor(empInfo.totalMinutes / 60);
-            const totalMins = empInfo.totalMinutes % 60;
-            const formattedTotalHours = `${totalHrs}h ${totalMins}m`;
-
             const recordsWithStats = [
-                ...empInfo.records,
+                ...records,
                 {
                     'Date': 'Summary Statistics',
-                    'Check In': `Days Present: ${empInfo.daysPresent}`,
-                    'Check Out': '',
-                    'Total Hours': `Total: ${formattedTotalHours}`,
+                    'Day': `Days Present: ${daysPresent}`,
+                    'Schedule In': '',
+                    'Schedule Out': '',
+                    'Check In': '',
+                    'Check Out': 'Total Hours:',
+                    'Total Hours': formattedTotalHours,
                     'Device Name': '',
                     'Branch': ''
                 }
@@ -127,8 +195,8 @@ export async function GET(request: Request) {
             XLSX.utils.book_append_sheet(workbook, worksheet, safeSheetName);
         });
 
-        if (Object.keys(groupedData).length === 0) {
-            const emptySheet = XLSX.utils.json_to_sheet([{ 'Message': 'No records found for this period' }]);
+        if (empMap.size === 0) {
+            const emptySheet = XLSX.utils.json_to_sheet([{ 'Message': 'No employees or records found for this period' }]);
             XLSX.utils.book_append_sheet(workbook, emptySheet, "Attendance");
         }
 

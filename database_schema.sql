@@ -75,20 +75,20 @@ CREATE TABLE IF NOT EXISTS public.device_commands (
     executed_at TIMESTAMPTZ
 );
 
--- 7. Reporting SQL View 
+-- 7. Reporting SQL View (Aggregated strictly by PIN + DATE so 1 employee only ever has 1 row per date)
 CREATE OR REPLACE VIEW public.daily_attendance_summary AS
 SELECT 
   a.pin,
-  e.full_name,
-  e.department,
-  d.name AS device_name, 
-  d.branch AS branch,    
+  MAX(e.full_name) as full_name,
+  MAX(e.department) as department,
+  COALESCE(MAX(e.branch), MAX(d.branch)) as branch,
+  MAX(d.name) as device_name,
   DATE(a.timestamp) as punch_date,
   MIN(a.timestamp) as check_in,
   MAX(a.timestamp) as check_out,
   COUNT(*) as total_punches,
-  s.start_time as shift_start,
-  s.end_time as shift_end
+  MAX(s.start_time) as shift_start,
+  MAX(s.end_time) as shift_end
 FROM public.attendance_logs a
 LEFT JOIN public.employees e ON a.pin = e.pin
 LEFT JOIN public.devices d ON a.sn = d.sn 
@@ -96,13 +96,7 @@ LEFT JOIN public.employee_shifts es ON e.pin = es.pin
 LEFT JOIN public.shifts s ON es.shift_id = s.id
 GROUP BY 
   a.pin, 
-  e.full_name, 
-  e.department, 
-  d.name,
-  d.branch, 
-  DATE(a.timestamp), 
-  s.start_time, 
-  s.end_time;
+  DATE(a.timestamp);
 
 -- 8. Enable RLS (Row Level Security)
 ALTER TABLE public.devices ENABLE ROW LEVEL SECURITY;
@@ -127,7 +121,7 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'device_commands' AND policyname = 'Enable all access for all users') THEN
         CREATE POLICY "Enable all access for all users" ON public.device_commands FOR ALL USING (true);
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'shifts' AND policyname = 'Enable all access for all users') THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tabUATION_NAME = 'shifts' AND policyname = 'Enable all access for all users') THEN
         CREATE POLICY "Enable all access for all users" ON public.shifts FOR ALL USING (true);
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'employee_shifts' AND policyname = 'Enable all access for all users') THEN

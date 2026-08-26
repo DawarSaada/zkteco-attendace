@@ -9,23 +9,27 @@ import {
     FileSpreadsheet, 
     FileText, 
     Edit3, 
-    Plus, 
-    Trash2, 
     X, 
-    AlertTriangle, 
-    Clock, 
-    CheckCircle2, 
     Calendar,
-    Building2,
-    Search,
     RotateCw,
-    User
+    Search
 } from 'lucide-react';
 
+function generateDateRange(start: string, end: string): string[] {
+    const dates: string[] = [];
+    const curr = new Date(`${start}T00:00:00Z`);
+    const last = new Date(`${end}T00:00:00Z`);
+    while (curr <= last) {
+        dates.push(curr.toISOString().substring(0, 10));
+        curr.setUTCDate(curr.getUTCDate() + 1);
+    }
+    return dates;
+}
+
 export default function ReportsPage() {
-    const [rangeType, setRangeType] = useState('daily');
-    const [startDate, setStartDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
-    const [endDate, setEndDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
+    const [rangeType, setRangeType] = useState('monthly');
+    const [startDate, setStartDate] = useState(() => format(startOfMonth(new Date()), 'yyyy-MM-dd'));
+    const [endDate, setEndDate] = useState(() => format(endOfMonth(new Date()), 'yyyy-MM-dd'));
     const [employeesList, setEmployeesList] = useState<Employee[]>([]);
     const [devicesList, setDevicesList] = useState<Device[]>([]);
     const [filterPin, setFilterPin] = useState('all');
@@ -139,7 +143,6 @@ export default function ReportsPage() {
     const deletePunch = async (punch: RawPunch) => {
         if (!selectedRowForPunches) return;
         
-        // Edge case check: warn user if deleting a punch that is part of a paired check-in/out
         if (rawPunches.length === 2) {
             const confirmed = confirm(
                 '⚠️ Attention: Deleting this punch will leave an unpaired punch for this day. Are you sure you want to proceed?'
@@ -248,12 +251,55 @@ export default function ReportsPage() {
         window.location.href = `/api/reports/export?start=${startDate}&end=${endDate}&pin=${filterPin}&branch=${filterBranch}`;
     };
 
-    // 6. PDF Export: Strict 1-Page-Per-Employee Guarantee
+    // 6. PDF Export: Complete Calendar Date Grid (1-Page-Per-Employee-Per-Month Guarantee)
     const handleExportPDF = () => {
-        if (reports.length === 0) {
-            showToast('No attendance records available to generate PDF.', 'error');
+        const allDates = generateDateRange(startDate, endDate);
+
+        // Build list of target employees
+        const empMap = new Map<string, {
+            pin: string;
+            name: string;
+            department: string;
+            branch: string;
+        }>();
+
+        // Populate from employeesList matching filters
+        employeesList.forEach(e => {
+            if (filterPin !== 'all' && e.pin !== filterPin) return;
+            if (filterBranch !== 'all' && e.branch !== filterBranch) return;
+            empMap.set(e.pin, {
+                pin: e.pin,
+                name: e.full_name || `PIN ${e.pin}`,
+                department: e.department || '',
+                branch: e.branch || ''
+            });
+        });
+
+        // Add any employee present in reports
+        reports.forEach(r => {
+            if (filterPin !== 'all' && r.pin !== filterPin) return;
+            if (filterBranch !== 'all' && r.branch !== filterBranch) return;
+            if (!empMap.has(r.pin)) {
+                empMap.set(r.pin, {
+                    pin: r.pin,
+                    name: r.full_name || `PIN ${r.pin}`,
+                    department: r.department || '',
+                    branch: r.branch || ''
+                });
+            }
+        });
+
+        const employees = Array.from(empMap.values());
+        if (employees.length === 0) {
+            showToast('No employees found to generate PDF.', 'error');
             return;
         }
+
+        // Map reports by `${pin}_${punch_date}`
+        const attendanceMap = new Map<string, DailyAttendanceSummary>();
+        reports.forEach(r => {
+            attendanceMap.set(`${r.pin}_${r.punch_date}`, r);
+        });
 
         const doc = new jsPDF({
             orientation: 'landscape',
@@ -261,57 +307,24 @@ export default function ReportsPage() {
             format: 'a4'
         });
 
-        // Group rows by employee PIN
-        const groupedReports = reports.reduce((acc, row) => {
-            const empKey = row.pin;
-            if (!acc[empKey]) {
-                acc[empKey] = {
-                    pin: row.pin,
-                    name: row.full_name || `PIN ${row.pin}`,
-                    department: row.department || '',
-                    branch: row.branch || '',
-                    records: [],
-                    totalMinutes: 0,
-                    daysPresent: 0
-                };
-            }
-            acc[empKey].records.push(row);
-            const mins = calculateMinutes(row.check_in, row.check_out);
-            acc[empKey].totalMinutes += mins;
-            if (row.check_in) {
-                acc[empKey].daysPresent += 1;
-            }
-            return acc;
-        }, {} as Record<string, {
-            pin: string;
-            name: string;
-            department: string;
-            branch: string;
-            records: DailyAttendanceSummary[];
-            totalMinutes: number;
-            daysPresent: number;
-        }>);
-
-        const employees = Object.values(groupedReports);
-
         employees.forEach((emp, index) => {
             if (index > 0) {
                 doc.addPage('a4', 'landscape');
             }
 
             // Compact Header
-            doc.setFontSize(13);
+            doc.setFontSize(12);
             doc.setFont('helvetica', 'bold');
-            doc.text('Monthly Employee Time Card Report', 10, 9);
+            doc.text('Monthly Employee Time Card Report', 10, 8.5);
 
-            doc.setFontSize(8.5);
+            doc.setFontSize(8);
             doc.setFont('helvetica', 'normal');
-            doc.text(`Period: ${startDate} to ${endDate}`, 10, 14);
+            doc.text(`Period: ${startDate} to ${endDate}`, 10, 13);
 
             const deptText = emp.department ? ` | Dept: ${emp.department}` : '';
             const branchText = emp.branch ? ` | Branch: ${emp.branch}` : '';
             doc.setFont('helvetica', 'bold');
-            doc.text(`Employee ID: ${emp.pin} | Name: ${emp.name}${deptText}${branchText}`, 10, 18.5);
+            doc.text(`Employee ID: ${emp.pin} | Name: ${emp.name}${deptText}${branchText}`, 10, 17);
 
             // Columns
             const tableColumn = [
@@ -319,34 +332,60 @@ export default function ReportsPage() {
                 "Clock In", "Clock Out", "Total Hours", "Device", "Branch"
             ];
 
-            const tableRows = emp.records.map((row) => {
-                const pDate = new Date(row.punch_date);
-                const weekday = format(pDate, 'EEE');
-                const clockIn = formatPunchTime(row.check_in);
-                const clockOut = formatPunchTime(row.check_out);
-                const totalHours = formatTotalHours(row.check_in, row.check_out);
+            let totalMinutes = 0;
+            let daysPresent = 0;
 
-                return [
-                    row.punch_date,
-                    weekday,
-                    row.shift_start ? row.shift_start.substring(0, 5) : '--:--',
-                    row.shift_end ? row.shift_end.substring(0, 5) : '--:--',
-                    clockIn,
-                    clockOut,
-                    totalHours,
-                    row.device_name || '-',
-                    row.branch || emp.branch || '-'
-                ];
+            const tableRows = allDates.map((dateStr) => {
+                const pDate = new Date(`${dateStr}T00:00:00Z`);
+                const weekday = format(pDate, 'EEE');
+                const key = `${emp.pin}_${dateStr}`;
+                const log = attendanceMap.get(key);
+
+                if (log && (log.check_in || log.check_out)) {
+                    daysPresent += 1;
+                    const mins = calculateMinutes(log.check_in, log.check_out);
+                    totalMinutes += mins;
+
+                    const hasBothPunches = log.check_in && log.check_out && log.check_in !== log.check_out;
+                    const clockIn = formatPunchTime(log.check_in);
+                    const clockOut = hasBothPunches ? formatPunchTime(log.check_out) : '';
+                    const totalHours = hasBothPunches ? formatTotalHours(log.check_in, log.check_out) : '0h 0m';
+
+                    return [
+                        dateStr,
+                        weekday,
+                        log.shift_start ? log.shift_start.substring(0, 5) : '--:--',
+                        log.shift_end ? log.shift_end.substring(0, 5) : '--:--',
+                        clockIn,
+                        clockOut,
+                        totalHours,
+                        log.device_name || '-',
+                        log.branch || emp.branch || '-'
+                    ];
+                } else {
+                    // Day with NO attendance: punch places are left cleanly EMPTY
+                    return [
+                        dateStr,
+                        weekday,
+                        '--:--',
+                        '--:--',
+                        '',
+                        '',
+                        '',
+                        '',
+                        emp.branch || '-'
+                    ];
+                }
             });
 
             // Summary Statistics Row
-            const totalHrs = Math.floor(emp.totalMinutes / 60);
-            const totalMins = emp.totalMinutes % 60;
+            const totalHrs = Math.floor(totalMinutes / 60);
+            const totalMins = totalMinutes % 60;
             const formattedTotalHours = `${totalHrs}h ${totalMins}m`;
 
             tableRows.push([
                 'Summary:',
-                `Days: ${emp.daysPresent}`,
+                `Days: ${daysPresent}`,
                 '',
                 '',
                 'Total Hours:',
@@ -356,23 +395,18 @@ export default function ReportsPage() {
                 ''
             ]);
 
-            const rowCount = tableRows.length;
-            const isDense = rowCount > 18;
-            const fontSize = isDense ? 6.5 : 7.5;
-            const cellPadding = isDense ? 0.8 : 1.3;
-            const minCellHeight = isDense ? 3.6 : 4.4;
-
+            // Density styling guarantees all 32 rows fit on 1 landscape A4 page (210mm height)
             autoTable(doc, {
                 head: [tableColumn],
                 body: tableRows,
-                startY: 21,
-                margin: { top: 21, bottom: 6, left: 8, right: 8 },
+                startY: 19,
+                margin: { top: 19, bottom: 5, left: 8, right: 8 },
                 theme: 'grid',
                 pageBreak: 'avoid',
                 styles: { 
-                    fontSize: fontSize,
-                    cellPadding: cellPadding,
-                    minCellHeight: minCellHeight,
+                    fontSize: 6.3,
+                    cellPadding: 0.65,
+                    minCellHeight: 3.4,
                     overflow: 'ellipsize',
                     lineColor: [210, 210, 210],
                     lineWidth: 0.1,
@@ -382,14 +416,14 @@ export default function ReportsPage() {
                     fillColor: [240, 244, 248], 
                     textColor: [20, 20, 20],
                     fontStyle: 'bold',
-                    fontSize: fontSize + 0.5,
-                    cellPadding: cellPadding + 0.2
+                    fontSize: 6.8,
+                    cellPadding: 0.8
                 },
                 columnStyles: {
-                    0: { cellWidth: 26 },
-                    1: { cellWidth: 16 },
-                    2: { cellWidth: 24 },
-                    3: { cellWidth: 24 },
+                    0: { cellWidth: 24 },
+                    1: { cellWidth: 14 },
+                    2: { cellWidth: 22 },
+                    3: { cellWidth: 22 },
                     4: { cellWidth: 22 },
                     5: { cellWidth: 22 },
                     6: { cellWidth: 24 },
@@ -400,7 +434,7 @@ export default function ReportsPage() {
         });
 
         doc.save(`TimeCards_${startDate}_to_${endDate}.pdf`);
-        showToast('PDF exported successfully (1 page per employee)!');
+        showToast('PDF exported successfully (Complete calendar grid, 1 page per employee)!');
     };
 
     const allBranches = [
@@ -454,7 +488,7 @@ export default function ReportsPage() {
                         className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold shadow-sm shadow-emerald-600/20 transition-all cursor-pointer"
                     >
                         <FileSpreadsheet size={16} />
-                        <span>Export Excel (Multi-Sheet)</span>
+                        <span>Export Excel (Complete Grid)</span>
                     </button>
                     <button 
                         type="button"
@@ -522,9 +556,9 @@ export default function ReportsPage() {
                         onChange={(e) => setRangeType(e.target.value)}
                         className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 cursor-pointer"
                     >
-                        <option value="daily">Today</option>
-                        <option value="weekly">This Week</option>
                         <option value="monthly">This Month</option>
+                        <option value="weekly">This Week</option>
+                        <option value="daily">Today</option>
                         <option value="custom">Custom Date Range</option>
                     </select>
                 </div>
@@ -564,15 +598,19 @@ export default function ReportsPage() {
                                 <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Employee</th>
                                 <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Date</th>
                                 <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Shift Schedule</th>
-                                <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">First In (UTC)</th>
-                                <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Last Out (UTC)</th>
+                                <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Check In (UTC)</th>
+                                <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Check Out (UTC)</th>
                                 <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Duration</th>
                                 <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right">Audit & Punches</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-sm">
                             {reports.map((row, idx) => {
-                                const totalHours = formatTotalHours(row.check_in, row.check_out);
+                                const hasBothPunches = row.check_in && row.check_out && row.check_in !== row.check_out;
+                                const totalHours = hasBothPunches ? formatTotalHours(row.check_in, row.check_out) : '0h 0m';
+                                const checkInTime = formatPunchTime(row.check_in);
+                                const checkOutTime = hasBothPunches ? formatPunchTime(row.check_out) : '--:--';
+                                
                                 const shiftStr = (row.shift_start && row.shift_end) 
                                     ? `${row.shift_start.substring(0,5)} - ${row.shift_end.substring(0,5)}` 
                                     : 'Unassigned';
@@ -582,7 +620,7 @@ export default function ReportsPage() {
                                         <td className="px-6 py-4 font-medium text-slate-900 dark:text-white">
                                             <div className="font-semibold">{row.full_name || `Employee ${row.pin}`}</div>
                                             <div className="text-xs text-slate-400 dark:text-slate-500">
-                                                PIN: {row.pin} {row.branch ? `&bull; ${row.branch}` : ''}
+                                                PIN: {row.pin} {row.branch ? ` • ${row.branch}` : ''}
                                             </div>
                                         </td>
                                         <td className="px-6 py-4 font-mono text-slate-600 dark:text-slate-300">
@@ -592,10 +630,10 @@ export default function ReportsPage() {
                                             {shiftStr}
                                         </td>
                                         <td className="px-6 py-4 font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                                            {formatPunchTime(row.check_in)}
+                                            {checkInTime}
                                         </td>
                                         <td className="px-6 py-4 font-mono font-bold text-blue-600 dark:text-blue-400">
-                                            {formatPunchTime(row.check_out)}
+                                            {checkOutTime}
                                         </td>
                                         <td className="px-6 py-4 font-mono font-semibold text-slate-800 dark:text-slate-200">
                                             {totalHours}
@@ -681,12 +719,12 @@ export default function ReportsPage() {
                                                     </span>
                                                 </td>
                                                 <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400">
-                                                    {punch.is_manual || punch.sn === 'MANUAL_ENTRY' ? (
+                                                    {punch.is_manual || !punch.sn ? (
                                                         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 font-semibold text-[10px]">
                                                             Manual Edit
                                                         </span>
                                                     ) : (
-                                                        <span className="font-mono text-[11px]">{punch.sn || 'Device'}</span>
+                                                        <span className="font-mono text-[11px]">{punch.sn}</span>
                                                     )}
                                                 </td>
                                                 <td className="px-4 py-2.5 text-right space-x-2">
@@ -724,7 +762,7 @@ export default function ReportsPage() {
                             </table>
                         </div>
 
-                        {/* Inline Punch Editor (if editing existing punch) */}
+                        {/* Inline Punch Editor */}
                         {editingPunch ? (
                             <form onSubmit={handleSavePunchEdit} className="p-4 rounded-xl bg-blue-50/50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/60 space-y-3">
                                 <div className="flex items-center justify-between">
