@@ -234,8 +234,8 @@ export default function DevicesPage() {
 
             {/* Edit Device Modal */}
             {editingDevice && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
-                    <div className="bg-white dark:bg-[#0c121e] rounded-2xl p-6 max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 animate-in zoom-in-95 duration-150">
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50 animate-in fade-in duration-150">
+                    <div className="bg-white dark:bg-[#0c121e] rounded-2xl p-4 sm:p-6 max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-150">
                         <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800/80">
                             <div>
                                 <h3 className="text-lg font-bold text-slate-900 dark:text-white">Edit Device Settings</h3>

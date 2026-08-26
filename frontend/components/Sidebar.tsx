@@ -9,8 +9,10 @@ import {
     Users, 
     Clock, 
     LogOut,
-    Fingerprint
+    Fingerprint,
+    X
 } from 'lucide-react';
+import { useNav } from '@/components/NavContext';
 
 interface SidebarProps {
     userEmail?: string;
@@ -19,6 +21,7 @@ interface SidebarProps {
 
 export function Sidebar({ userEmail, onLogout }: SidebarProps) {
     const pathname = usePathname();
+    const { mobileOpen, setMobileOpen } = useNav();
 
     const navItems = [
         { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
@@ -29,19 +32,30 @@ export function Sidebar({ userEmail, onLogout }: SidebarProps) {
         { href: '/dashboard/devices', label: 'Terminal Devices', icon: MonitorSmartphone },
     ];
 
-    return (
-        <aside className="w-64 bg-white dark:bg-[#0c121e] border-r border-slate-200 dark:border-slate-800/80 flex flex-col shrink-0 min-h-screen sticky top-0 h-screen transition-colors duration-200 z-40">
+    const sidebarContent = (
+        <div className="flex flex-col h-full bg-white dark:bg-[#0c121e] border-r border-slate-200 dark:border-slate-800/80 transition-colors duration-200">
             {/* Brand Header */}
-            <div className="h-16 flex items-center px-6 border-b border-slate-200 dark:border-slate-800/80 gap-3">
-                <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white shadow-sm shadow-blue-500/20">
-                    <Fingerprint size={20} />
+            <div className="h-16 flex items-center justify-between px-6 border-b border-slate-200 dark:border-slate-800/80">
+                <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white shadow-sm shadow-blue-500/20">
+                        <Fingerprint size={20} />
+                    </div>
+                    <div>
+                        <h1 className="font-bold text-base tracking-tight text-slate-900 dark:text-white leading-tight">
+                            BioTime <span className="text-blue-600 dark:text-blue-400 font-semibold text-xs px-1.5 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800/50">Pro</span>
+                        </h1>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Attendance Management</p>
+                    </div>
                 </div>
-                <div>
-                    <h1 className="font-bold text-base tracking-tight text-slate-900 dark:text-white leading-tight">
-                        BioTime <span className="text-blue-600 dark:text-blue-400 font-semibold text-xs px-1.5 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800/50">Pro</span>
-                    </h1>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Attendance Management</p>
-                </div>
+
+                {/* Close Button on Mobile */}
+                <button
+                    type="button"
+                    onClick={() => setMobileOpen(false)}
+                    className="lg:hidden p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                    <X size={18} />
+                </button>
             </div>
 
             {/* Navigation Links */}
@@ -57,6 +71,7 @@ export function Sidebar({ userEmail, onLogout }: SidebarProps) {
                         <Link
                             key={item.href}
                             href={item.href}
+                            onClick={() => setMobileOpen(false)}
                             className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl font-medium text-sm transition-all duration-150 ${
                                 isActive
                                     ? 'bg-blue-600 text-white shadow-sm shadow-blue-600/30 dark:shadow-blue-500/20'
@@ -110,6 +125,31 @@ export function Sidebar({ userEmail, onLogout }: SidebarProps) {
                     </form>
                 </div>
             </div>
-        </aside>
+        </div>
+    );
+
+    return (
+        <>
+            {/* Desktop Fixed Sidebar */}
+            <aside className="hidden lg:block w-64 shrink-0 min-h-screen sticky top-0 h-screen z-40">
+                {sidebarContent}
+            </aside>
+
+            {/* Mobile Off-Canvas Drawer */}
+            {mobileOpen && (
+                <div className="fixed inset-0 z-50 lg:hidden animate-in fade-in duration-200">
+                    {/* Backdrop */}
+                    <div 
+                        className="fixed inset-0 bg-black/60 backdrop-blur-xs" 
+                        onClick={() => setMobileOpen(false)} 
+                    />
+                    
+                    {/* Drawer Panel */}
+                    <div className="relative w-72 max-w-[85vw] h-full shadow-2xl animate-in slide-in-from-left duration-200 z-10">
+                        {sidebarContent}
+                    </div>
+                </div>
+            )}
+        </>
     );
 }
