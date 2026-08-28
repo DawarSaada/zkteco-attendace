@@ -7,13 +7,30 @@ interface SendReportOptions {
     reportResult: GeneratedReportResult;
 }
 
+function getResendFromAddress(): string {
+    const raw = (process.env.RESEND_FROM || '').trim();
+    if (!raw) {
+        return 'Dawar Al-Saada <onboarding@resend.dev>';
+    }
+    if (raw.includes('<') && raw.includes('>')) {
+        return raw;
+    }
+    if (raw.includes('@')) {
+        return `Dawar Al-Saada <${raw}>`;
+    }
+    return `${raw} <onboarding@resend.dev>`;
+}
+
 export async function sendReportEmail({ recipients, reportResult }: SendReportOptions): Promise<{ success: boolean; messageId?: string; simulated?: boolean; error?: string }> {
     const {
         excelBuffer,
         excelFileName,
+        pdfBuffer,
+        pdfFileName,
         branchName,
         startDate,
         endDate,
+        reportFormat,
         totalEmployees,
         daysPresentCount,
         totalHoursFormatted
@@ -26,6 +43,29 @@ export async function sendReportEmail({ recipients, reportResult }: SendReportOp
 
     const subject = `📊 Monthly Attendance Report: ${branchName} (${startDate} to ${endDate})`;
     
+    // Build attachments matching the selected format
+    const attachments: Array<{ filename: string; content: Buffer; contentType?: string }> = [];
+    if (excelBuffer && excelFileName) {
+        attachments.push({
+            filename: excelFileName,
+            content: excelBuffer,
+            contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        });
+    }
+    if (pdfBuffer && pdfFileName) {
+        attachments.push({
+            filename: pdfFileName,
+            content: pdfBuffer,
+            contentType: 'application/pdf'
+        });
+    }
+
+    const formatDescription = reportFormat === 'pdf'
+        ? 'a 1-page-per-employee PDF document'
+        : reportFormat === 'excel'
+        ? 'an Excel spreadsheet'
+        : 'both an Excel spreadsheet and a 1-page-per-employee PDF document';
+
     const htmlContent = `
     <!DOCTYPE html>
     <html lang="en">
@@ -71,7 +111,7 @@ export async function sendReportEmail({ recipients, reportResult }: SendReportOp
                 </div>
             </div>
 
-            <p>The complete day-by-day attendance spreadsheet with check-in, check-out, shifts, and timestamps has been attached to this email as an Excel spreadsheet (<strong>${excelFileName}</strong>).</p>
+            <p>The complete day-by-day attendance records with check-in, check-out, shifts, and timestamps have been attached to this email as ${formatDescription}.</p>
 
             <div class="footer">
                 <p>Sent automatically by Dawar Al-Saada BioTime Management Server • Port 8088</p>
@@ -80,20 +120,6 @@ export async function sendReportEmail({ recipients, reportResult }: SendReportOp
     </body>
     </html>
     `;
-
-function getResendFromAddress(): string {
-    const raw = (process.env.RESEND_FROM || '').trim();
-    if (!raw) {
-        return 'Dawar Al-Saada <onboarding@resend.dev>';
-    }
-    if (raw.includes('<') && raw.includes('>')) {
-        return raw;
-    }
-    if (raw.includes('@')) {
-        return `Dawar Al-Saada <${raw}>`;
-    }
-    return `${raw} <onboarding@resend.dev>`;
-}
 
     // 1. Prioritize Resend API if RESEND_API_KEY is provided
     if (resendApiKey) {
@@ -106,12 +132,10 @@ function getResendFromAddress(): string {
                 to: recipients,
                 subject,
                 html: htmlContent,
-                attachments: [
-                    {
-                        filename: excelFileName,
-                        content: excelBuffer
-                    }
-                ]
+                attachments: attachments.map(a => ({
+                    filename: a.filename,
+                    content: a.content
+                }))
             });
 
             if (response.error) {
@@ -153,13 +177,7 @@ function getResendFromAddress(): string {
                 to: recipients.join(', '),
                 subject,
                 html: htmlContent,
-                attachments: [
-                    {
-                        filename: excelFileName,
-                        content: excelBuffer,
-                        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                    }
-                ]
+                attachments
             });
 
             return {

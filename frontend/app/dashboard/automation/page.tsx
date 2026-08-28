@@ -185,7 +185,8 @@ export default function AutomationPage() {
                     branch: rule.branch,
                     recipients: rule.recipient_emails,
                     cycle_start_day: rule.cycle_start_day,
-                    cycle_end_day: rule.cycle_end_day
+                    cycle_end_day: rule.cycle_end_day,
+                    report_format: rule.report_format || 'both'
                 })
             });
 

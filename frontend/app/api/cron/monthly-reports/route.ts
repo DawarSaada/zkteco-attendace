@@ -48,7 +48,7 @@ export async function GET(request: Request) {
             const { startDate, endDate } = calculatePayrollWindow(rule.cycle_start_day, rule.cycle_end_day);
 
             try {
-                const reportResult = await generateBranchReportBuffer(startDate, endDate, rule.branch);
+                const reportResult = await generateBranchReportBuffer(startDate, endDate, rule.branch, rule.report_format || 'both');
                 const mailResult = await sendReportEmail({
                     recipients: rule.recipient_emails,
                     reportResult

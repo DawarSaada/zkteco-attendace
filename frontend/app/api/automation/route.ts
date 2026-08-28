@@ -60,14 +60,14 @@ export async function POST(request: Request) {
 
         // 1. Instant Test Dispatch Action
         if (body.action === 'test_send') {
-            const { branch, recipients, cycle_start_day = 26, cycle_end_day = 25, automation_id } = body;
+            const { branch, recipients, cycle_start_day = 26, cycle_end_day = 25, automation_id, report_format = 'both' } = body;
 
             if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
                 return NextResponse.json({ error: 'Please specify at least one recipient email.' }, { status: 400 });
             }
 
             const { startDate, endDate } = calculatePayrollWindow(cycle_start_day, cycle_end_day);
-            const reportResult = await generateBranchReportBuffer(startDate, endDate, branch);
+            const reportResult = await generateBranchReportBuffer(startDate, endDate, branch, report_format);
             const mailResult = await sendReportEmail({ recipients, reportResult });
 
             // Log execution in database
