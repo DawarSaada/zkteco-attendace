@@ -13,6 +13,8 @@ import {
     X
 } from 'lucide-react';
 import { useNav } from '@/components/NavContext';
+import { useLanguage } from '@/components/LanguageContext';
+import { TranslationKey } from '@/lib/i18n/translations';
 
 interface SidebarProps {
     userEmail?: string;
@@ -22,18 +24,19 @@ interface SidebarProps {
 export function Sidebar({ userEmail, onLogout }: SidebarProps) {
     const pathname = usePathname();
     const { mobileOpen, setMobileOpen } = useNav();
+    const { t, isRTL } = useLanguage();
 
-    const navItems = [
-        { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
-        { href: '/dashboard/live', label: 'Live Monitor', icon: Activity, badge: 'Live' },
-        { href: '/dashboard/reports', label: 'Reports', icon: FileSpreadsheet },
-        { href: '/dashboard/employees', label: 'Employees', icon: Users },
-        { href: '/dashboard/shifts', label: 'Shifts & Schedule', icon: Clock },
-        { href: '/dashboard/devices', label: 'Terminal Devices', icon: MonitorSmartphone },
+    const navItems: Array<{ href: string; labelKey: TranslationKey; icon: any; badge?: string }> = [
+        { href: '/dashboard', labelKey: 'nav_overview', icon: LayoutDashboard },
+        { href: '/dashboard/live', labelKey: 'nav_live', icon: Activity, badge: 'Live' },
+        { href: '/dashboard/reports', labelKey: 'nav_reports', icon: FileSpreadsheet },
+        { href: '/dashboard/employees', labelKey: 'nav_employees', icon: Users },
+        { href: '/dashboard/shifts', labelKey: 'nav_shifts', icon: Clock },
+        { href: '/dashboard/devices', labelKey: 'nav_devices', icon: MonitorSmartphone },
     ];
 
     const sidebarContent = (
-        <div className="flex flex-col h-full bg-white dark:bg-[#0c121e] border-r border-slate-200 dark:border-slate-800/80 transition-colors duration-200">
+        <div className="flex flex-col h-full bg-white dark:bg-[#0c121e] border-r rtl:border-r-0 rtl:border-l border-slate-200 dark:border-slate-800/80 transition-colors duration-200">
             {/* Brand Header */}
             <div className="h-16 flex items-center justify-between px-6 border-b border-slate-200 dark:border-slate-800/80">
                 <div className="flex items-center gap-3">
@@ -42,9 +45,9 @@ export function Sidebar({ userEmail, onLogout }: SidebarProps) {
                     </div>
                     <div>
                         <h1 className="font-bold text-base tracking-tight text-slate-900 dark:text-white leading-tight">
-                            BioTime <span className="text-blue-600 dark:text-blue-400 font-semibold text-xs px-1.5 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800/50">Pro</span>
+                            {t('app_title')} <span className="text-blue-600 dark:text-blue-400 font-semibold text-xs px-1.5 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800/50">Pro</span>
                         </h1>
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Attendance Management</p>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">{t('app_subtitle')}</p>
                     </div>
                 </div>
 
@@ -61,7 +64,7 @@ export function Sidebar({ userEmail, onLogout }: SidebarProps) {
             {/* Navigation Links */}
             <nav className="flex-1 px-3 py-4 space-y-1.5 overflow-y-auto">
                 <div className="px-3 pb-2 text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
-                    Main Menu
+                    {t('nav_main_menu')}
                 </div>
                 {navItems.map((item) => {
                     const Icon = item.icon;
@@ -78,9 +81,9 @@ export function Sidebar({ userEmail, onLogout }: SidebarProps) {
                                     : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-slate-200'
                             }`}
                         >
-                            <div className="flex items-center space-x-3">
+                            <div className="flex items-center space-x-3 rtl:space-x-reverse">
                                 <Icon size={18} className={isActive ? 'text-white' : 'text-slate-400 dark:text-slate-400'} />
-                                <span>{item.label}</span>
+                                <span>{t(item.labelKey)}</span>
                             </div>
                             {item.badge && (
                                 <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded-md ${
@@ -99,25 +102,25 @@ export function Sidebar({ userEmail, onLogout }: SidebarProps) {
             {/* System Status / User Footer */}
             <div className="p-3 border-t border-slate-200 dark:border-slate-800/80 space-y-2">
                 <div className="px-3 py-2 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200/80 dark:border-slate-800/60 flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
+                    <div className="flex items-center space-x-2 rtl:space-x-reverse">
                         <span className="relative flex h-2 w-2">
                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                         </span>
-                        <span className="text-[11px] font-medium text-slate-600 dark:text-slate-400">ADMS Server</span>
+                        <span className="text-[11px] font-medium text-slate-600 dark:text-slate-400">{t('server_status')}</span>
                     </div>
-                    <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Online</span>
+                    <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">{t('server_online')}</span>
                 </div>
 
                 <div className="flex items-center justify-between px-2 pt-1">
                     <div className="truncate max-w-[145px]">
-                        <p className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">{userEmail || 'Administrator'}</p>
-                        <p className="text-[10px] text-slate-400 dark:text-slate-500 truncate">Authenticated</p>
+                        <p className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">{userEmail || t('administrator')}</p>
+                        <p className="text-[10px] text-slate-400 dark:text-slate-500 truncate">{t('authenticated')}</p>
                     </div>
                     <form action={onLogout}>
                         <button
                             type="submit"
-                            title="Sign Out"
+                            title={t('sign_out')}
                             className="p-2 text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer"
                         >
                             <LogOut size={16} />
@@ -145,7 +148,9 @@ export function Sidebar({ userEmail, onLogout }: SidebarProps) {
                     />
                     
                     {/* Drawer Panel */}
-                    <div className="relative w-72 max-w-[85vw] h-full shadow-2xl animate-in slide-in-from-left duration-200 z-10">
+                    <div className={`relative w-72 max-w-[85vw] h-full shadow-2xl animate-in duration-200 z-10 ${
+                        isRTL ? 'slide-in-from-right mr-auto' : 'slide-in-from-left ml-auto'
+                    }`}>
                         {sidebarContent}
                     </div>
                 </div>

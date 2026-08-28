@@ -5,14 +5,14 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Employee, Device, DailyAttendanceSummary, RawPunch } from '@/types';
 import { formatPunchTime, formatTotalHours, calculateMinutes } from '@/lib/utils/formatTime';
+import { SortHeader } from '@/components/SortHeader';
+import { useLanguage } from '@/components/LanguageContext';
 import { 
     FileSpreadsheet, 
     FileText, 
     Edit3, 
     X, 
-    Calendar,
     RotateCw,
-    Search
 } from 'lucide-react';
 
 function generateDateRange(start: string, end: string): string[] {
@@ -37,6 +37,10 @@ export default function ReportsPage() {
     const [loading, setLoading] = useState(false);
     const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+    // Sorting State
+    const [sortKey, setSortKey] = useState<string>('date');
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+
     // Punches Modal State
     const [selectedRowForPunches, setSelectedRowForPunches] = useState<{ pin: string; date: string; name: string } | null>(null);
     const [rawPunches, setRawPunches] = useState<RawPunch[]>([]);
@@ -50,12 +54,13 @@ export default function ReportsPage() {
     const [reports, setReports] = useState<DailyAttendanceSummary[]>([]);
     const [errorMsg, setErrorMsg] = useState('');
 
+    const { t, isRTL } = useLanguage();
+
     const showToast = (text: string, type: 'success' | 'error' = 'success') => {
         setToastMsg({ text, type });
         setTimeout(() => setToastMsg(null), 4000);
     };
 
-    // 1. Fetch employees and devices on mount to populate dynamic filter lists
     useEffect(() => {
         const fetchFiltersData = async () => {
             try {
@@ -78,7 +83,6 @@ export default function ReportsPage() {
         fetchFiltersData();
     }, []);
 
-    // 2. Adjust dates when range type changes
     useEffect(() => {
         const today = new Date();
         if (rangeType === 'daily') {
@@ -94,7 +98,6 @@ export default function ReportsPage() {
         }
     }, [rangeType]);
 
-    // 3. Fetch attendance reports
     const fetchReports = useCallback(async () => {
         setLoading(true);
         setErrorMsg('');
@@ -119,7 +122,59 @@ export default function ReportsPage() {
         fetchReports();
     }, [fetchReports]);
 
-    // 4. Punches Modal Handlers
+    const handleSort = (key: string) => {
+        if (sortKey === key) {
+            setSortOrder(prev => (prev === 'asc' ? 'desc' : 'asc'));
+        } else {
+            setSortKey(key);
+            setSortOrder('asc');
+        }
+    };
+
+    const sortedReports = useMemo(() => {
+        const list = [...reports];
+        list.sort((a, b) => {
+            let valA: any = '';
+            let valB: any = '';
+
+            switch (sortKey) {
+                case 'employee':
+                    valA = a.full_name || `Employee ${a.pin}`;
+                    valB = b.full_name || `Employee ${b.pin}`;
+                    return sortOrder === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+
+                case 'date':
+                    valA = a.punch_date;
+                    valB = b.punch_date;
+                    return sortOrder === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+
+                case 'shift':
+                    valA = a.shift_start || '';
+                    valB = b.shift_start || '';
+                    return sortOrder === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+
+                case 'check_in':
+                    valA = a.check_in ? new Date(a.check_in).getTime() : 0;
+                    valB = b.check_in ? new Date(b.check_in).getTime() : 0;
+                    return sortOrder === 'asc' ? valA - valB : valB - valA;
+
+                case 'check_out':
+                    valA = a.check_out ? new Date(a.check_out).getTime() : 0;
+                    valB = b.check_out ? new Date(b.check_out).getTime() : 0;
+                    return sortOrder === 'asc' ? valA - valB : valB - valA;
+
+                case 'duration':
+                    valA = calculateMinutes(a.check_in, a.check_out);
+                    valB = calculateMinutes(b.check_in, b.check_out);
+                    return sortOrder === 'asc' ? valA - valB : valB - valA;
+
+                default:
+                    return 0;
+            }
+        });
+        return list;
+    }, [reports, sortKey, sortOrder]);
+
     const openPunchesModal = async (pin: string, date: string, name: string) => {
         setSelectedRowForPunches({ pin, date, name });
         setEditingPunch(null);
@@ -246,16 +301,13 @@ export default function ReportsPage() {
         }
     };
 
-    // 5. Excel Export Handler
     const handleExportExcel = () => {
         window.location.href = `/api/reports/export?start=${startDate}&end=${endDate}&pin=${filterPin}&branch=${filterBranch}`;
     };
 
-    // 6. PDF Export: Complete Calendar Date Grid (1-Page-Per-Employee-Per-Month Guarantee)
     const handleExportPDF = () => {
         const allDates = generateDateRange(startDate, endDate);
 
-        // Build list of target employees
         const empMap = new Map<string, {
             pin: string;
             name: string;
@@ -263,7 +315,6 @@ export default function ReportsPage() {
             branch: string;
         }>();
 
-        // Populate from employeesList matching filters
         employeesList.forEach(e => {
             if (filterPin !== 'all' && e.pin !== filterPin) return;
             if (filterBranch !== 'all' && e.branch !== filterBranch) return;
@@ -275,7 +326,6 @@ export default function ReportsPage() {
             });
         });
 
-        // Add any employee present in reports
         reports.forEach(r => {
             if (filterPin !== 'all' && r.pin !== filterPin) return;
             if (filterBranch !== 'all' && r.branch !== filterBranch) return;
@@ -295,7 +345,6 @@ export default function ReportsPage() {
             return;
         }
 
-        // Map reports by `${pin}_${punch_date}`
         const attendanceMap = new Map<string, DailyAttendanceSummary>();
         reports.forEach(r => {
             attendanceMap.set(`${r.pin}_${r.punch_date}`, r);
@@ -312,7 +361,6 @@ export default function ReportsPage() {
                 doc.addPage('a4', 'landscape');
             }
 
-            // Compact Header
             doc.setFontSize(12);
             doc.setFont('helvetica', 'bold');
             doc.text('Monthly Employee Time Card Report', 10, 8.5);
@@ -326,7 +374,6 @@ export default function ReportsPage() {
             doc.setFont('helvetica', 'bold');
             doc.text(`Employee ID: ${emp.pin} | Name: ${emp.name}${deptText}${branchText}`, 10, 17);
 
-            // Columns
             const tableColumn = [
                 "Date", "Day", "Schedule In", "Schedule Out", 
                 "Clock In", "Clock Out", "Total Hours", "Device", "Branch"
@@ -363,7 +410,6 @@ export default function ReportsPage() {
                         log.branch || emp.branch || '-'
                     ];
                 } else {
-                    // Day with NO attendance: punch places are left cleanly EMPTY
                     return [
                         dateStr,
                         weekday,
@@ -378,7 +424,6 @@ export default function ReportsPage() {
                 }
             });
 
-            // Summary Statistics Row
             const totalHrs = Math.floor(totalMinutes / 60);
             const totalMins = totalMinutes % 60;
             const formattedTotalHours = `${totalHrs}h ${totalMins}m`;
@@ -395,7 +440,6 @@ export default function ReportsPage() {
                 ''
             ]);
 
-            // Density styling guarantees all 32 rows fit on 1 landscape A4 page (210mm height)
             autoTable(doc, {
                 head: [tableColumn],
                 body: tableRows,
@@ -434,7 +478,7 @@ export default function ReportsPage() {
         });
 
         doc.save(`TimeCards_${startDate}_to_${endDate}.pdf`);
-        showToast('PDF exported successfully (Complete calendar grid, 1 page per employee)!');
+        showToast('PDF exported successfully!');
     };
 
     const allBranches = [
@@ -474,21 +518,21 @@ export default function ReportsPage() {
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-2 border-b border-slate-200 dark:border-slate-800/60">
                 <div>
                     <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-                        Attendance Reports
+                        {t('reports_title')}
                     </h2>
                     <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                        Generate timecard summaries, review shifts, and edit manual punches.
+                        {t('reports_subtitle')}
                     </p>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3">
+                <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
                     <button 
                         type="button"
                         onClick={handleExportExcel}
                         className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold shadow-sm shadow-emerald-600/20 transition-all cursor-pointer"
                     >
                         <FileSpreadsheet size={16} />
-                        <span>Export Excel (Complete Grid)</span>
+                        <span>{t('btn_export_excel')}</span>
                     </button>
                     <button 
                         type="button"
@@ -496,7 +540,7 @@ export default function ReportsPage() {
                         className="inline-flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold shadow-sm shadow-red-600/20 transition-all cursor-pointer"
                     >
                         <FileText size={16} />
-                        <span>Export PDF (1 Page/Emp)</span>
+                        <span>{t('btn_export_pdf')}</span>
                     </button>
                 </div>
             </div>
@@ -506,14 +550,14 @@ export default function ReportsPage() {
                 {/* Branch Filter */}
                 <div className="w-full sm:w-auto flex-1 min-w-[180px]">
                     <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                        Branch
+                        {t('filter_branch')}
                     </label>
                     <select 
                         value={filterBranch} 
                         onChange={(e) => setFilterBranch(e.target.value)}
                         className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 cursor-pointer"
                     >
-                        <option value="all">All Branches</option>
+                        <option value="all">{t('filter_all_branches')}</option>
                         {uniqueBranches.map(branch => (
                             <option key={branch} value={branch}>{branch}</option>
                         ))}
@@ -523,14 +567,14 @@ export default function ReportsPage() {
                 {/* Employee Filter */}
                 <div className="w-full sm:w-auto flex-1 min-w-[220px]">
                     <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                        Employee
+                        {t('filter_employee')}
                     </label>
                     <select 
                         value={filterPin} 
                         onChange={(e) => setFilterPin(e.target.value)}
                         className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 cursor-pointer"
                     >
-                        <option value="all">All Employees ({combinedEmployees.length})</option>
+                        <option value="all">{t('filter_all_employees')} ({combinedEmployees.length})</option>
                         {combinedEmployees
                             .filter(e => filterBranch === 'all' || e.branch === filterBranch)
                             .map(emp => {
@@ -549,30 +593,30 @@ export default function ReportsPage() {
                 {/* Range Preset */}
                 <div className="w-full sm:w-auto min-w-[140px]">
                     <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                        Timeframe
+                        {t('filter_timeframe')}
                     </label>
                     <select 
                         value={rangeType} 
                         onChange={(e) => setRangeType(e.target.value)}
                         className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 cursor-pointer"
                     >
-                        <option value="monthly">This Month</option>
-                        <option value="weekly">This Week</option>
-                        <option value="daily">Today</option>
-                        <option value="custom">Custom Date Range</option>
+                        <option value="monthly">{t('range_monthly')}</option>
+                        <option value="weekly">{t('range_weekly')}</option>
+                        <option value="daily">{t('range_daily')}</option>
+                        <option value="custom">{t('range_custom')}</option>
                     </select>
                 </div>
 
                 {/* Custom Dates */}
                 {rangeType === 'custom' && (
-                    <div className="w-full sm:w-auto flex items-center gap-2 pt-4 sm:pt-4">
+                    <div className="w-full sm:w-auto flex items-center gap-2 pt-2 sm:pt-4">
                         <input 
                             type="date" 
                             value={startDate} 
                             onChange={(e) => setStartDate(e.target.value)} 
                             className="px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500"
                         />
-                        <span className="text-xs text-slate-400">to</span>
+                        <span className="text-xs text-slate-400">{t('date_to')}</span>
                         <input 
                             type="date" 
                             value={endDate} 
@@ -589,23 +633,61 @@ export default function ReportsPage() {
                 </div>
             )}
 
-            {/* Reports Table */}
+            {/* Reports Table with Interactive Column Sorting */}
             <div className="rounded-2xl bg-white dark:bg-[#0c121e] border border-slate-200 dark:border-slate-800/80 shadow-xs overflow-hidden transition-colors">
                 <div className="overflow-x-auto">
-                    <table className="w-full text-left">
+                    <table className="w-full text-left rtl:text-right">
                         <thead className="bg-slate-50/80 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-800/80">
                             <tr>
-                                <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Employee</th>
-                                <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Date</th>
-                                <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Shift Schedule</th>
-                                <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Check In (UTC)</th>
-                                <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Check Out (UTC)</th>
-                                <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Duration</th>
-                                <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right">Audit & Punches</th>
+                                <SortHeader 
+                                    columnKey="employee" 
+                                    label={t('col_employee')} 
+                                    activeKey={sortKey} 
+                                    sortOrder={sortOrder} 
+                                    onSort={handleSort} 
+                                />
+                                <SortHeader 
+                                    columnKey="date" 
+                                    label={t('col_date')} 
+                                    activeKey={sortKey} 
+                                    sortOrder={sortOrder} 
+                                    onSort={handleSort} 
+                                />
+                                <SortHeader 
+                                    columnKey="shift" 
+                                    label={t('col_shift_schedule')} 
+                                    activeKey={sortKey} 
+                                    sortOrder={sortOrder} 
+                                    onSort={handleSort} 
+                                />
+                                <SortHeader 
+                                    columnKey="check_in" 
+                                    label={t('col_check_in')} 
+                                    activeKey={sortKey} 
+                                    sortOrder={sortOrder} 
+                                    onSort={handleSort} 
+                                />
+                                <SortHeader 
+                                    columnKey="check_out" 
+                                    label={t('col_check_out')} 
+                                    activeKey={sortKey} 
+                                    sortOrder={sortOrder} 
+                                    onSort={handleSort} 
+                                />
+                                <SortHeader 
+                                    columnKey="duration" 
+                                    label={t('col_duration')} 
+                                    activeKey={sortKey} 
+                                    sortOrder={sortOrder} 
+                                    onSort={handleSort} 
+                                />
+                                <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right rtl:text-left">
+                                    {t('col_audit_punches')}
+                                </th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-sm">
-                            {reports.map((row, idx) => {
+                            {sortedReports.map((row, idx) => {
                                 const hasBothPunches = row.check_in && row.check_out && row.check_in !== row.check_out;
                                 const totalHours = hasBothPunches ? formatTotalHours(row.check_in, row.check_out) : '0h 0m';
                                 const checkInTime = formatPunchTime(row.check_in);
@@ -613,7 +695,7 @@ export default function ReportsPage() {
                                 
                                 const shiftStr = (row.shift_start && row.shift_end) 
                                     ? `${row.shift_start.substring(0,5)} - ${row.shift_end.substring(0,5)}` 
-                                    : 'Unassigned';
+                                    : t('unassigned');
 
                                 return (
                                     <tr key={idx} className="hover:bg-slate-50/60 dark:hover:bg-slate-900/40 transition-colors">
@@ -638,28 +720,28 @@ export default function ReportsPage() {
                                         <td className="px-6 py-4 font-mono font-semibold text-slate-800 dark:text-slate-200">
                                             {totalHours}
                                         </td>
-                                        <td className="px-6 py-4 text-right">
+                                        <td className="px-6 py-4 text-right rtl:text-left">
                                             <button 
                                                 type="button"
                                                 onClick={() => openPunchesModal(row.pin, row.punch_date, row.full_name || row.pin)}
                                                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 text-xs font-semibold border border-blue-200 dark:border-blue-800/60 transition-colors cursor-pointer"
                                             >
                                                 <Edit3 size={13} />
-                                                <span>Manage Punches</span>
+                                                <span>{t('btn_manage_punches')}</span>
                                             </button>
                                         </td>
                                     </tr>
                                 );
                             })}
-                            {reports.length === 0 && !errorMsg && (
+                            {sortedReports.length === 0 && !errorMsg && (
                                 <tr>
                                     <td colSpan={7} className="px-6 py-12 text-center text-slate-400 dark:text-slate-500">
                                         {loading ? (
                                             <div className="flex items-center justify-center gap-2">
                                                 <RotateCw size={18} className="animate-spin text-blue-500" />
-                                                <span>Loading attendance records...</span>
+                                                <span>{t('loading')}</span>
                                             </div>
-                                        ) : 'No attendance logs recorded for selected filter period.'}
+                                        ) : t('no_reports_found')}
                                     </td>
                                 </tr>
                             )}
@@ -675,7 +757,7 @@ export default function ReportsPage() {
                         <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800/80">
                             <div>
                                 <h3 className="text-lg font-bold text-slate-900 dark:text-white">
-                                    Manual Attendance & Audit Trail
+                                    {t('modal_manual_title')}
                                 </h3>
                                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                                     {selectedRowForPunches.name} &bull; PIN: {selectedRowForPunches.pin} &bull; {selectedRowForPunches.date}
@@ -692,13 +774,13 @@ export default function ReportsPage() {
 
                         {/* Raw Punches List */}
                         <div className="max-h-56 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
-                            <table className="w-full text-left text-xs">
+                            <table className="w-full text-left rtl:text-right text-xs">
                                 <thead className="bg-slate-100 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 uppercase tracking-wider font-semibold">
                                     <tr>
-                                        <th className="px-4 py-2.5">Time (UTC)</th>
-                                        <th className="px-4 py-2.5">Type</th>
-                                        <th className="px-4 py-2.5">Source / Audit</th>
-                                        <th className="px-4 py-2.5 text-right">Actions</th>
+                                        <th className="px-4 py-2.5">{t('modal_time_label')}</th>
+                                        <th className="px-4 py-2.5">{t('col_status')}</th>
+                                        <th className="px-4 py-2.5">{t('col_source_device')}</th>
+                                        <th className="px-4 py-2.5 text-right rtl:text-left">{t('actions')}</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -715,19 +797,19 @@ export default function ReportsPage() {
                                                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                                                         isPunchIn ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400' : 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-400'
                                                     }`}>
-                                                        {isPunchIn ? 'Check-In' : 'Check-Out'}
+                                                        {isPunchIn ? t('status_checkin') : t('status_checkout')}
                                                     </span>
                                                 </td>
                                                 <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400">
                                                     {punch.is_manual || !punch.sn ? (
                                                         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 font-semibold text-[10px]">
-                                                            Manual Edit
+                                                            {t('source_manual')}
                                                         </span>
                                                     ) : (
                                                         <span className="font-mono text-[11px]">{punch.sn}</span>
                                                     )}
                                                 </td>
-                                                <td className="px-4 py-2.5 text-right space-x-2">
+                                                <td className="px-4 py-2.5 text-right rtl:text-left space-x-2 rtl:space-x-reverse">
                                                     <button
                                                         type="button"
                                                         onClick={() => setEditingPunch({
@@ -738,14 +820,14 @@ export default function ReportsPage() {
                                                         })}
                                                         className="text-blue-600 dark:text-blue-400 hover:underline font-semibold cursor-pointer text-xs"
                                                     >
-                                                        Edit
+                                                        {t('edit')}
                                                     </button>
                                                     <button 
                                                         type="button"
                                                         onClick={() => deletePunch(punch)} 
                                                         className="text-red-600 dark:text-red-400 hover:underline font-semibold cursor-pointer text-xs"
                                                     >
-                                                        Delete
+                                                        {t('delete')}
                                                     </button>
                                                 </td>
                                             </tr>
@@ -754,7 +836,7 @@ export default function ReportsPage() {
                                     {rawPunches.length === 0 && (
                                         <tr>
                                             <td colSpan={4} className="px-4 py-6 text-center text-slate-400 dark:text-slate-500">
-                                                No punches found for this date.
+                                                {t('no_reports_found')}
                                             </td>
                                         </tr>
                                     )}
@@ -767,19 +849,19 @@ export default function ReportsPage() {
                             <form onSubmit={handleSavePunchEdit} className="p-4 rounded-xl bg-blue-50/50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/60 space-y-3">
                                 <div className="flex items-center justify-between">
                                     <span className="text-xs font-bold text-blue-700 dark:text-blue-300">
-                                        Modifying Existing Punch
+                                        {t('modal_modifying_punch')}
                                     </span>
                                     <button
                                         type="button"
                                         onClick={() => setEditingPunch(null)}
                                         className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
                                     >
-                                        Cancel Edit
+                                        {t('btn_cancel_edit')}
                                     </button>
                                 </div>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <div>
-                                        <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">Time (UTC)</label>
+                                        <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">{t('modal_time_label')}</label>
                                         <input 
                                             type="time" 
                                             value={editingPunch.time} 
@@ -789,14 +871,14 @@ export default function ReportsPage() {
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">Status Type</label>
+                                        <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">{t('modal_punch_type')}</label>
                                         <select
                                             value={editingPunch.status}
                                             onChange={e => setEditingPunch({ ...editingPunch, status: e.target.value })}
                                             className="w-full px-3 py-2 rounded-lg bg-white dark:bg-[#0c121e] border border-slate-200 dark:border-slate-800 text-sm"
                                         >
-                                            <option value="0">Check-In</option>
-                                            <option value="1">Check-Out</option>
+                                            <option value="0">{t('status_checkin')}</option>
+                                            <option value="1">{t('status_checkout')}</option>
                                         </select>
                                     </div>
                                 </div>
@@ -805,18 +887,18 @@ export default function ReportsPage() {
                                     disabled={isSavingPunch}
                                     className="w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-sm cursor-pointer disabled:opacity-50"
                                 >
-                                    {isSavingPunch ? 'Updating...' : 'Save Punch Update'}
+                                    {isSavingPunch ? t('saving') : t('btn_save_punch_update')}
                                 </button>
                             </form>
                         ) : (
                             /* Add Punch Form */
                             <form onSubmit={addManualPunch} className="space-y-3 pt-2">
                                 <span className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-                                    Record New Manual Punch
+                                    {t('modal_record_new_punch')}
                                 </span>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <div>
-                                        <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">Time (UTC)</label>
+                                        <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">{t('modal_time_label')}</label>
                                         <input 
                                             type="time" 
                                             value={newPunchTime} 
@@ -826,14 +908,14 @@ export default function ReportsPage() {
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">Punch Type</label>
+                                        <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">{t('modal_punch_type')}</label>
                                         <select
                                             value={newPunchStatus}
                                             onChange={e => setNewPunchStatus(e.target.value)}
                                             className="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-sm text-slate-900 dark:text-slate-100"
                                         >
-                                            <option value="0">Check-In</option>
-                                            <option value="1">Check-Out</option>
+                                            <option value="0">{t('status_checkin')}</option>
+                                            <option value="1">{t('status_checkout')}</option>
                                         </select>
                                     </div>
                                 </div>
@@ -842,18 +924,18 @@ export default function ReportsPage() {
                                     disabled={isSavingPunch}
                                     className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-xl text-sm font-semibold shadow-sm shadow-blue-500/20 disabled:opacity-50 cursor-pointer transition-all"
                                 >
-                                    {isSavingPunch ? 'Saving Punch...' : 'Add Manual Punch'}
+                                    {isSavingPunch ? t('saving') : t('btn_add_manual_punch')}
                                 </button>
                             </form>
                         )}
 
-                        <div className="pt-2 border-t border-slate-200 dark:border-slate-800/80 flex justify-end">
+                        <div className="pt-2 border-t border-slate-200 dark:border-slate-800/80 flex justify-end rtl:justify-start">
                             <button 
                                 type="button"
                                 onClick={() => setSelectedRowForPunches(null)} 
                                 className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-sm font-medium transition-colors cursor-pointer"
                             >
-                                Done
+                                {t('done')}
                             </button>
                         </div>
                     </div>

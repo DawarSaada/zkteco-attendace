@@ -2,16 +2,12 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Shift, Employee, EmployeeShift } from '@/types';
+import { useLanguage } from '@/components/LanguageContext';
 import { 
     Clock, 
-    Plus, 
     Users, 
-    Calendar, 
     Moon, 
-    Sun, 
-    Check, 
     Trash2,
-    Briefcase
 } from 'lucide-react';
 
 export default function ShiftsPage() {
@@ -20,6 +16,7 @@ export default function ShiftsPage() {
     const [employeeShifts, setEmployeeShifts] = useState<EmployeeShift[]>([]);
     const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
     const supabase = useMemo(() => createClient(), []);
+    const { t } = useLanguage();
 
     // Create Shift State
     const [newShiftName, setNewShiftName] = useState('');
@@ -81,7 +78,7 @@ export default function ShiftsPage() {
                 .select();
                 
             if (error) throw error;
-            showToast('Shift template created successfully.');
+            showToast(t('success'));
             setNewShiftName('');
             fetchData();
         } catch (err: unknown) {
@@ -101,12 +98,24 @@ export default function ShiftsPage() {
                 .upsert({ pin: assignEmpPin, shift_id: assignShiftId }, { onConflict: 'pin' });
                 
             if (error) throw error;
-            showToast('Shift schedule assigned to employee.');
+            showToast(t('success'));
             fetchData();
         } catch (err: unknown) {
             showToast(err instanceof Error ? err.message : 'Failed to assign shift.', 'error');
         } finally {
             setIsAssigning(false);
+        }
+    };
+
+    const removeShiftAssignment = async (pin: string) => {
+        if (!confirm('Remove shift assignment for this employee?')) return;
+        try {
+            const { error } = await supabase.from('employee_shifts').delete().eq('pin', pin);
+            if (error) throw error;
+            showToast(t('success'));
+            fetchData();
+        } catch (err: unknown) {
+            showToast(err instanceof Error ? err.message : 'Failed to remove assignment.', 'error');
         }
     };
 
@@ -125,16 +134,16 @@ export default function ShiftsPage() {
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-2 border-b border-slate-200 dark:border-slate-800/60">
                 <div>
                     <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-                        Shifts & Work Schedules
+                        {t('shifts_title')}
                     </h2>
                     <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                        Define standard and overnight shift hours, and map them to employee timecards.
+                        {t('shifts_subtitle')}
                     </p>
                 </div>
 
                 <div className="flex items-center gap-2">
                     <span className="px-3 py-1 rounded-full text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/50">
-                        {shifts.length} Active Templates
+                        {shifts.length} {t('nav_shifts')}
                     </span>
                 </div>
             </div>
@@ -144,13 +153,13 @@ export default function ShiftsPage() {
                 <div className="p-6 rounded-2xl bg-white dark:bg-[#0c121e] border border-slate-200 dark:border-slate-800/80 shadow-xs space-y-4">
                     <div className="flex items-center gap-2 pb-2 border-b border-slate-100 dark:border-slate-800/60">
                         <Clock size={18} className="text-blue-500" />
-                        <h3 className="font-bold text-base text-slate-900 dark:text-white">Create Shift Schedule</h3>
+                        <h3 className="font-bold text-base text-slate-900 dark:text-white">{t('shifts_create_title')}</h3>
                     </div>
 
                     <form onSubmit={createShift} className="space-y-4">
                         <div>
                             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                Shift Name
+                                {t('shifts_name_label')}
                             </label>
                             <input 
                                 type="text" 
@@ -165,7 +174,7 @@ export default function ShiftsPage() {
                         <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                    Start Time
+                                    {t('shifts_start_label')}
                                 </label>
                                 <input 
                                     type="time" 
@@ -177,7 +186,7 @@ export default function ShiftsPage() {
                             </div>
                             <div>
                                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                    End Time
+                                    {t('shifts_end_label')}
                                 </label>
                                 <input 
                                     type="time" 
@@ -193,7 +202,7 @@ export default function ShiftsPage() {
                         {isOvernight && (
                             <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 flex items-center gap-2 text-xs text-amber-800 dark:text-amber-300">
                                 <Moon size={15} className="text-amber-600 dark:text-amber-400 shrink-0" />
-                                <span><strong>Overnight Shift:</strong> End time crosses past midnight into the next calendar day.</span>
+                                <span>{t('shifts_overnight_badge')}</span>
                             </div>
                         )}
 
@@ -202,7 +211,7 @@ export default function ShiftsPage() {
                             disabled={isCreating}
                             className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-xl text-sm shadow-sm shadow-blue-500/20 disabled:opacity-50 transition-all cursor-pointer"
                         >
-                            {isCreating ? 'Creating Template...' : 'Save Shift Template'}
+                            {isCreating ? t('saving') : t('shifts_btn_create')}
                         </button>
                     </form>
                 </div>
@@ -211,13 +220,13 @@ export default function ShiftsPage() {
                 <div className="p-6 rounded-2xl bg-white dark:bg-[#0c121e] border border-slate-200 dark:border-slate-800/80 shadow-xs space-y-4">
                     <div className="flex items-center gap-2 pb-2 border-b border-slate-100 dark:border-slate-800/60">
                         <Users size={18} className="text-indigo-500" />
-                        <h3 className="font-bold text-base text-slate-900 dark:text-white">Assign Shift Schedule</h3>
+                        <h3 className="font-bold text-base text-slate-900 dark:text-white">{t('shifts_assign_title')}</h3>
                     </div>
 
                     <form onSubmit={assignShift} className="space-y-4">
                         <div>
                             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                Select Employee
+                                {t('shifts_select_emp')}
                             </label>
                             <select 
                                 value={assignEmpPin}
@@ -234,7 +243,7 @@ export default function ShiftsPage() {
 
                         <div>
                             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                Select Shift Template
+                                {t('shifts_select_shift')}
                             </label>
                             <select 
                                 value={assignShiftId}
@@ -251,92 +260,47 @@ export default function ShiftsPage() {
 
                         <button 
                             type="submit" 
-                            disabled={isAssigning || shifts.length === 0 || employees.length === 0}
+                            disabled={isAssigning}
                             className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 rounded-xl text-sm shadow-sm shadow-indigo-500/20 disabled:opacity-50 transition-all cursor-pointer"
                         >
-                            {isAssigning ? 'Assigning...' : 'Assign Schedule'}
+                            {isAssigning ? t('saving') : t('shifts_btn_assign')}
                         </button>
                     </form>
                 </div>
 
-                {/* 3. Existing Shift Templates List */}
-                <div className="p-6 rounded-2xl bg-white dark:bg-[#0c121e] border border-slate-200 dark:border-slate-800/80 shadow-xs space-y-4">
-                    <div className="flex items-center gap-2 pb-2 border-b border-slate-100 dark:border-slate-800/60">
-                        <Calendar size={18} className="text-emerald-500" />
-                        <h3 className="font-bold text-base text-slate-900 dark:text-white">Active Shift Templates</h3>
-                    </div>
+                {/* 3. Assigned Schedules Roster List */}
+                <div className="p-6 rounded-2xl bg-white dark:bg-[#0c121e] border border-slate-200 dark:border-slate-800/80 shadow-xs flex flex-col">
+                    <h3 className="font-bold text-base text-slate-900 dark:text-white pb-2 border-b border-slate-100 dark:border-slate-800/60 mb-3">
+                        {t('nav_shifts')} ({employeeShifts.length})
+                    </h3>
 
-                    <div className="space-y-2.5 max-h-60 overflow-y-auto">
-                        {shifts.map(shift => {
-                            const isOver = shift.end_time < shift.start_time;
-                            return (
-                                <div key={shift.id} className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800/60 flex items-center justify-between">
-                                    <div>
-                                        <h4 className="font-semibold text-xs text-slate-900 dark:text-white">{shift.name}</h4>
-                                        <div className="flex items-center gap-1.5 font-mono text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                                            <span>{shift.start_time.substring(0,5)} - {shift.end_time.substring(0,5)}</span>
-                                            {isOver && (
-                                                <span className="text-[10px] text-amber-600 dark:text-amber-400 font-sans font-semibold px-1 rounded bg-amber-50 dark:bg-amber-950/60">
-                                                    Overnight
-                                                </span>
-                                            )}
-                                        </div>
+                    <div className="flex-1 overflow-y-auto max-h-[380px] space-y-2 divide-y divide-slate-100 dark:divide-slate-800/60">
+                        {employeeShifts.map((es, idx) => (
+                            <div key={idx} className="pt-2 flex items-center justify-between text-xs">
+                                <div>
+                                    <div className="font-semibold text-slate-900 dark:text-white">
+                                        {es.employees?.full_name || `PIN ${es.pin}`}
+                                    </div>
+                                    <div className="text-slate-400 font-mono">
+                                        PIN: {es.pin} &bull; <span className="text-indigo-600 dark:text-indigo-400 font-medium">{es.shifts?.name}</span> ({es.shifts?.start_time?.substring(0,5) || '--:--'} - {es.shifts?.end_time?.substring(0,5) || '--:--'})
                                     </div>
                                 </div>
-                            );
-                        })}
-                        {shifts.length === 0 && (
-                            <p className="text-xs text-slate-400 text-center py-4">No shift templates created yet.</p>
+                                <button
+                                    type="button"
+                                    onClick={() => removeShiftAssignment(es.pin)}
+                                    className="p-1 text-slate-400 hover:text-red-600 rounded transition-colors cursor-pointer"
+                                    title={t('delete')}
+                                >
+                                    <Trash2 size={14} />
+                                </button>
+                            </div>
+                        ))}
+                        {employeeShifts.length === 0 && (
+                            <div className="py-12 text-center text-slate-400 text-xs">
+                                {t('no_reports_found')}
+                            </div>
                         )}
                     </div>
-                </div>
-            </div>
-
-            {/* 4. Employee Shift Assignments Table */}
-            <div className="rounded-2xl bg-white dark:bg-[#0c121e] border border-slate-200 dark:border-slate-800/80 shadow-xs overflow-hidden transition-colors">
-                <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800/80">
-                    <h3 className="font-bold text-base text-slate-900 dark:text-white">Current Employee Shift Assignments</h3>
-                </div>
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                        <thead className="bg-slate-50/80 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-800/80">
-                            <tr>
-                                <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">PIN ID</th>
-                                <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Employee Name</th>
-                                <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Assigned Shift</th>
-                                <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Schedule Hours</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-sm">
-                            {employeeShifts.map(es => (
-                                <tr key={es.pin} className="hover:bg-slate-50/60 dark:hover:bg-slate-900/40 transition-colors">
-                                    <td className="px-6 py-4 font-mono font-bold text-slate-700 dark:text-slate-300">
-                                        {es.pin}
-                                    </td>
-                                    <td className="px-6 py-4 font-semibold text-slate-900 dark:text-white">
-                                        {es.employees?.full_name || `User ${es.pin}`}
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/50">
-                                            {es.shifts?.name || 'Assigned Shift'}
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4 font-mono text-xs text-slate-600 dark:text-slate-400">
-                                        {es.shifts?.start_time && es.shifts?.end_time 
-                                            ? `${es.shifts.start_time.substring(0,5)} - ${es.shifts.end_time.substring(0,5)}` 
-                                            : '-'}
-                                    </td>
-                                </tr>
-                            ))}
-                            {employeeShifts.length === 0 && (
-                                <tr>
-                                    <td colSpan={4} className="px-6 py-12 text-center text-slate-400 dark:text-slate-500 text-sm">
-                                        No employee shift assignments configured yet.
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
                 </div>
             </div>
         </div>

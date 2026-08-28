@@ -2,11 +2,14 @@
 import { useEffect, useState } from 'react';
 import { Building2, Clock, Menu } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { LanguageToggle } from '@/components/LanguageToggle';
 import { useNav } from '@/components/NavContext';
+import { useLanguage } from '@/components/LanguageContext';
 
 export function Header() {
     const [timeStr, setTimeStr] = useState<string>('');
     const { toggleMobile } = useNav();
+    const { t } = useLanguage();
 
     useEffect(() => {
         const updateClock = () => {
@@ -20,7 +23,7 @@ export function Header() {
 
     return (
         <header className="w-full h-16 bg-white/80 dark:bg-[#0c121e]/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800/80 flex items-center justify-between px-4 sm:px-6 md:px-8 sticky top-0 z-30 transition-colors duration-200 shrink-0">
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center space-x-3 rtl:space-x-reverse">
                 {/* Mobile Menu Hamburger Button */}
                 <button
                     type="button"
@@ -36,22 +39,25 @@ export function Header() {
                 </div>
                 <div>
                     <h2 className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200 leading-none">
-                        Dawar Al-Saada Attendance
+                        {t('company_name')}
                     </h2>
                     <p className="hidden md:block text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 font-medium">
-                        Central Hardware Ingestion & Management Portal
+                        {t('company_subtitle')}
                     </p>
                 </div>
             </div>
 
-            <div className="flex items-center space-x-2 sm:space-x-3">
+            <div className="flex items-center space-x-2 sm:space-x-3 rtl:space-x-reverse">
                 {/* Live Digital Clock */}
                 {timeStr && (
-                    <div className="flex items-center space-x-1.5 sm:space-x-2 px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 text-[11px] sm:text-xs font-mono font-semibold text-slate-700 dark:text-slate-300 shadow-2xs">
+                    <div className="flex items-center space-x-1.5 sm:space-x-2 rtl:space-x-reverse px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 text-[11px] sm:text-xs font-mono font-semibold text-slate-700 dark:text-slate-300 shadow-2xs">
                         <Clock size={13} className="text-blue-500" />
                         <span>{timeStr}</span>
                     </div>
                 )}
+
+                {/* Language Switcher */}
+                <LanguageToggle />
 
                 {/* Dark Mode Switcher */}
                 <ThemeToggle />

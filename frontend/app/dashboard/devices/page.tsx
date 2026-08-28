@@ -2,17 +2,12 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Device } from '@/types';
+import { useLanguage } from '@/components/LanguageContext';
 import { 
     MonitorSmartphone, 
     RotateCw, 
     Power, 
-    Edit, 
-    Building2, 
-    Wifi, 
-    WifiOff, 
     X,
-    Radio,
-    HardDrive
 } from 'lucide-react';
 
 export default function DevicesPage() {
@@ -23,6 +18,7 @@ export default function DevicesPage() {
     const [editBranch, setEditBranch] = useState('');
     const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
     const supabase = useMemo(() => createClient(), []);
+    const { t } = useLanguage();
 
     const showToast = (text: string, type: 'success' | 'error' = 'success') => {
         setToastMsg({ text, type });
@@ -68,7 +64,7 @@ export default function DevicesPage() {
             });
             const data = await res.json();
             if (res.ok) {
-                showToast(`Command "${command_str}" queued successfully for device ${sn}.`);
+                showToast(t('success'));
             } else {
                 showToast(data.error || 'Failed to queue command.', 'error');
             }
@@ -90,7 +86,7 @@ export default function DevicesPage() {
             });
             const data = await res.json();
             if (res.ok) {
-                showToast('Device details updated successfully.');
+                showToast(t('success'));
                 setEditingDevice(null);
                 fetchDevices();
             } else {
@@ -122,16 +118,16 @@ export default function DevicesPage() {
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-2 border-b border-slate-200 dark:border-slate-800/60">
                 <div>
                     <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-                        Terminal Devices
+                        {t('dev_title')}
                     </h2>
                     <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                        Monitor physical ZKTeco hardware terminals, dispatch ADMS commands, and assign branch locations.
+                        {t('dev_subtitle')}
                     </p>
                 </div>
 
                 <div className="flex items-center gap-2">
                     <span className="px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/50">
-                        {devices.length} Registered Terminals
+                        {devices.length} {t('stat_terminals')}
                     </span>
                 </div>
             </div>
@@ -156,30 +152,30 @@ export default function DevicesPage() {
                                             SN: {device.sn}
                                         </p>
                                     </div>
-                                    <div className="flex flex-col items-end gap-1.5">
+                                    <div className="flex flex-col items-end rtl:items-start gap-1.5">
                                         <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
                                             isOnline 
                                                 ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60' 
                                                 : 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-800/60'
                                         }`}>
                                             <span className={`h-1.5 w-1.5 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`}></span>
-                                            <span>{isOnline ? 'Online' : 'Offline'}</span>
+                                            <span>{isOnline ? t('dev_online') : t('dev_offline')}</span>
                                         </span>
                                         <button 
                                             type="button"
                                             onClick={() => openEditModal(device)}
                                             className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-semibold cursor-pointer"
                                         >
-                                            Edit Details
+                                            {t('edit')}
                                         </button>
                                     </div>
                                 </div>
 
-                                <div className="space-y-2 py-3 border-y border-slate-100 dark:divide-slate-800/60 text-xs text-slate-600 dark:text-slate-400">
+                                <div className="space-y-2 py-3 border-y border-slate-100 dark:border-slate-800/60 text-xs text-slate-600 dark:text-slate-400">
                                     <div className="flex items-center justify-between">
-                                        <span className="text-slate-400">Branch:</span>
+                                        <span className="text-slate-400">{t('col_branch')}:</span>
                                         <span className="font-semibold text-slate-900 dark:text-slate-200">
-                                            {device.branch || 'Unassigned'}
+                                            {device.branch || t('unassigned')}
                                         </span>
                                     </div>
                                     <div className="flex items-center justify-between">
@@ -189,7 +185,7 @@ export default function DevicesPage() {
                                         </span>
                                     </div>
                                     <div className="flex items-center justify-between">
-                                        <span className="text-slate-400">Last Active:</span>
+                                        <span className="text-slate-400">{t('col_timestamp')}:</span>
                                         <span className="font-mono text-slate-800 dark:text-slate-300">
                                             {lastActive.toLocaleTimeString()} ({lastActive.toISOString().substring(0, 10)})
                                         </span>
@@ -206,7 +202,7 @@ export default function DevicesPage() {
                                     className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 text-xs font-semibold border border-blue-200 dark:border-blue-800/60 transition-colors disabled:opacity-50 cursor-pointer"
                                 >
                                     <RotateCw size={13} className={loadingAction === syncKey ? 'animate-spin' : ''} />
-                                    <span>{loadingAction === syncKey ? 'Sending...' : 'Sync Logs'}</span>
+                                    <span>{loadingAction === syncKey ? t('saving') : t('dev_sync_logs')}</span>
                                 </button>
                                 <button 
                                     type="button"
@@ -215,7 +211,7 @@ export default function DevicesPage() {
                                     className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold border border-slate-200 dark:border-slate-700/80 transition-colors disabled:opacity-50 cursor-pointer"
                                 >
                                     <Power size={13} />
-                                    <span>{loadingAction === rebootKey ? 'Sending...' : 'Reboot'}</span>
+                                    <span>{loadingAction === rebootKey ? t('saving') : t('dev_reboot')}</span>
                                 </button>
                             </div>
                         </div>
@@ -224,9 +220,9 @@ export default function DevicesPage() {
                 {devices.length === 0 && (
                     <div className="col-span-full p-12 text-center text-slate-400 dark:text-slate-500 bg-white dark:bg-[#0c121e] rounded-2xl border border-dashed border-slate-300 dark:border-slate-800">
                         <MonitorSmartphone size={36} className="mx-auto mb-3 text-slate-300 dark:text-slate-700" />
-                        <h4 className="font-semibold text-slate-700 dark:text-slate-300 text-base">No Devices Connected</h4>
+                        <h4 className="font-semibold text-slate-700 dark:text-slate-300 text-base">{t('dev_no_devices')}</h4>
                         <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 max-w-sm mx-auto">
-                            Configure your ZKTeco hardware ADMS / Cloud Server settings to point to this server URL.
+                            {t('dev_no_devices_desc')}
                         </p>
                     </div>
                 )}
@@ -238,7 +234,7 @@ export default function DevicesPage() {
                     <div className="bg-white dark:bg-[#0c121e] rounded-2xl p-4 sm:p-6 max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-150">
                         <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800/80">
                             <div>
-                                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Edit Device Settings</h3>
+                                <h3 className="text-lg font-bold text-slate-900 dark:text-white">{t('dev_edit_settings')}</h3>
                                 <p className="text-xs text-slate-500 dark:text-slate-400 font-mono mt-0.5">SN: {editingDevice.sn}</p>
                             </div>
                             <button 
@@ -252,7 +248,7 @@ export default function DevicesPage() {
                         <form onSubmit={handleSaveEdit} className="space-y-4">
                             <div>
                                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                    Device Custom Name
+                                    {t('dev_custom_name')}
                                 </label>
                                 <input 
                                     type="text" 
@@ -264,7 +260,7 @@ export default function DevicesPage() {
                             </div>
                             <div>
                                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                    Assigned Branch Location
+                                    {t('dev_branch_location')}
                                 </label>
                                 <input 
                                     type="text" 
@@ -274,19 +270,19 @@ export default function DevicesPage() {
                                     placeholder="e.g. Riyadh Headquarters" 
                                 />
                             </div>
-                            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800/80">
+                            <div className="flex items-center justify-end rtl:justify-start gap-3 pt-3 border-t border-slate-200 dark:border-slate-800/80">
                                 <button 
                                     type="button" 
                                     onClick={() => setEditingDevice(null)} 
                                     className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-sm font-medium transition-colors cursor-pointer"
                                 >
-                                    Cancel
+                                    {t('cancel')}
                                 </button>
                                 <button 
                                     type="submit" 
                                     className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold shadow-sm shadow-blue-500/20 transition-all cursor-pointer"
                                 >
-                                    Save Changes
+                                    {t('save')}
                                 </button>
                             </div>
                         </form>
