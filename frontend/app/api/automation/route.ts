@@ -88,11 +88,18 @@ export async function POST(request: Request) {
                 }).eq('id', automation_id);
             }
 
+            if (!mailResult.success) {
+                return NextResponse.json({
+                    success: false,
+                    error: mailResult.error || 'Failed to dispatch email via Resend/SMTP'
+                }, { status: 400 });
+            }
+
             return NextResponse.json({
-                success: mailResult.success,
+                success: true,
                 simulated: mailResult.simulated,
                 message: mailResult.simulated
-                    ? 'Test report generated successfully! (SMTP simulated: configure SMTP_HOST, SMTP_USER, SMTP_PASS in Vercel/environment to send live emails)'
+                    ? 'Test report generated! (Simulated mode: Add RESEND_API_KEY in Vercel to send live emails)'
                     : `Report dispatched successfully to ${recipients.join(', ')}`,
                 startDate,
                 endDate,

@@ -411,14 +411,21 @@ export default function AutomationPage() {
                                         {(log.recipients || []).join(', ')}
                                     </td>
                                     <td className="px-6 py-3.5">
-                                        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold text-[11px] ${
-                                            log.status === 'SUCCESS' 
-                                                ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60' 
-                                                : 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-800/60'
-                                        }`}>
-                                            {log.status === 'SUCCESS' ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />}
-                                            <span>{log.status}</span>
-                                        </span>
+                                        <div className="flex flex-col items-start gap-1">
+                                            <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold text-[11px] ${
+                                                log.status === 'SUCCESS' 
+                                                    ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60' 
+                                                    : 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-800/60'
+                                            }`}>
+                                                {log.status === 'SUCCESS' ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />}
+                                                <span>{log.status}</span>
+                                            </span>
+                                            {log.error_message && (
+                                                <span className="text-[11px] text-rose-600 dark:text-rose-400 max-w-xs truncate" title={log.error_message}>
+                                                    {log.error_message}
+                                                </span>
+                                            )}
+                                        </div>
                                     </td>
                                 </tr>
                             ))}
