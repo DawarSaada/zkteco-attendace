@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { AttendanceLog } from '@/types';
 import { formatPunchTime } from '@/lib/utils/formatTime';
@@ -23,32 +23,36 @@ export default function LiveMonitor() {
     const [sortKey, setSortKey] = useState<string>('timestamp');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
+    const empMapRef = useRef<Map<string, { full_name: string; branch?: string | null; department?: string | null }>>(new Map());
     const supabase = useMemo(() => createClient(), []);
     const { t, isRTL } = useLanguage();
+
+    // Initial load of employees cache
+    useEffect(() => {
+        const loadEmployees = async () => {
+            const { data } = await supabase.from('employees').select('pin, full_name, branch, department');
+            if (data) {
+                const map = new Map<string, { full_name: string; branch?: string | null; department?: string | null }>();
+                data.forEach(e => map.set(e.pin, e));
+                empMapRef.current = map;
+            }
+        };
+        loadEmployees();
+    }, [supabase]);
 
     const fetchLogs = useCallback(async (isManualTrigger = false) => {
         if (isManualTrigger) setIsRefreshing(true);
         try {
-            const [{ data: logsData, error: logsError }, { data: empData }] = await Promise.all([
-                supabase
-                    .from('attendance_logs')
-                    .select('*')
-                    .order('timestamp', { ascending: false })
-                    .limit(50),
-                supabase
-                    .from('employees')
-                    .select('pin, full_name, branch, department')
-            ]);
+            const { data: logsData, error: logsError } = await supabase
+                .from('attendance_logs')
+                .select('*')
+                .order('timestamp', { ascending: false })
+                .limit(50);
             
             if (!logsError && logsData) {
-                const empMap = new Map<string, { full_name: string; branch?: string | null; department?: string | null }>();
-                (empData || []).forEach(e => {
-                    empMap.set(e.pin, e);
-                });
-
                 const joinedLogs: AttendanceLog[] = logsData.map(log => ({
                     ...log,
-                    employees: empMap.get(log.pin) || null
+                    employees: empMapRef.current.get(log.pin) || null
                 }));
 
                 setLogs(joinedLogs);
@@ -60,7 +64,7 @@ export default function LiveMonitor() {
             console.error('[Live Monitor] Catch error:', err);
         } finally {
             if (isManualTrigger) {
-                setTimeout(() => setIsRefreshing(false), 400);
+                setTimeout(() => setIsRefreshing(false), 300);
             }
         }
     }, [supabase]);

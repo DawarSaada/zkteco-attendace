@@ -186,3 +186,13 @@ GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated, anon, service_role, p
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated, anon, service_role, postgres;
 GRANT ALL ON ALL ROUTINES IN SCHEMA public TO authenticated, anon, service_role, postgres;
 GRANT SELECT ON public.daily_attendance_summary TO authenticated, anon, service_role, postgres;
+
+-- 14. High-Performance B-Tree Indexes for Instant Query Response
+CREATE INDEX IF NOT EXISTS idx_attendance_logs_timestamp ON public.attendance_logs(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_attendance_logs_pin_timestamp ON public.attendance_logs(pin, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_attendance_logs_sn ON public.attendance_logs(sn);
+CREATE INDEX IF NOT EXISTS idx_employees_pin ON public.employees(pin);
+CREATE INDEX IF NOT EXISTS idx_employees_branch ON public.employees(branch);
+CREATE INDEX IF NOT EXISTS idx_devices_sn ON public.devices(sn);
+CREATE INDEX IF NOT EXISTS idx_devices_branch ON public.devices(branch);
+CREATE INDEX IF NOT EXISTS idx_employee_shifts_pin ON public.employee_shifts(pin);
