@@ -33,6 +33,14 @@ export async function GET() {
             supabase.from('report_automation_logs').select('*').order('created_at', { ascending: false }).limit(30)
         ]);
 
+        if (rulesRes.error && rulesRes.error.message.includes('schema cache')) {
+            return NextResponse.json({
+                rules: [],
+                logs: [],
+                warning: 'The report_automations table has not been created yet in Supabase. Please run the SQL schema.'
+            });
+        }
+
         return NextResponse.json({
             rules: rulesRes.data || [],
             logs: logsRes.data || []
