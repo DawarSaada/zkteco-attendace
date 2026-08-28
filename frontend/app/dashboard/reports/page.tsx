@@ -760,7 +760,7 @@ export default function ReportsPage() {
                                     {t('modal_manual_title')}
                                 </h3>
                                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                                    {selectedRowForPunches.name} &bull; PIN: {selectedRowForPunches.pin} &bull; {selectedRowForPunches.date}
+                                    {selectedRowForPunches.name} • PIN: {selectedRowForPunches.pin} • {selectedRowForPunches.date}
                                 </p>
                             </div>
                             <button 

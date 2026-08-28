@@ -50,7 +50,7 @@ export const translations = {
         stat_employees: 'Employees',
         stat_registered_profiles: 'Registered Biometric Profiles',
         stat_security_guard: 'Security Guard',
-        stat_session_active: 'Active &bull; Session Authenticated',
+        stat_session_active: 'Active • Session Authenticated',
         stat_adms_protocol: 'ADMS Protocol',
         stat_adms_info: 'Port 80 / HTTP Fail-Closed Ingestion Active',
         quick_live_title: 'Live Realtime Stream',
@@ -62,7 +62,7 @@ export const translations = {
 
         // Live Monitor Page
         live_title: 'Live Attendance Monitor',
-        live_streaming: 'Live Streaming &bull; 4s Polling',
+        live_streaming: 'Live Streaming • 4s Polling',
         live_subtitle: 'Real-time biometric terminal scan feed. Last updated at',
         live_search_placeholder: 'Filter by name, PIN, or SN...',
         live_no_punches: 'No recent punches found. Waiting for terminal activity...',
@@ -216,7 +216,7 @@ export const translations = {
         stat_employees: 'إجمالي الموظفين',
         stat_registered_profiles: 'الملفات البيومترية المسجلة',
         stat_security_guard: 'حالة الأمان',
-        stat_session_active: 'نشط &bull; جلسة موثقة بالكامل',
+        stat_session_active: 'نشط • جلسة موثقة بالكامل',
         stat_adms_protocol: 'بروتوكول ADMS',
         stat_adms_info: 'المنفذ 80 / اتصال HTTP آمن وفوري',
         quick_live_title: 'البث المباشر للحركات',
@@ -228,7 +228,7 @@ export const translations = {
 
         // Live Monitor Page
         live_title: 'شاشة المراقبة المباشرة للحضور',
-        live_streaming: 'بث مباشر فوري &bull; تحديث كل 4 ثوانٍ',
+        live_streaming: 'بث مباشر فوري • تحديث كل 4 ثوانٍ',
         live_subtitle: 'سجل حركات البصمة الحية مباشرة من الأجهزة. آخر تحديث في',
         live_search_placeholder: 'بحث بالاسم، رقم البصمة (PIN)، أو الرقم التسلسلي...',
         live_no_punches: 'لا توجد حركات حضور حديثة. بانتظار نشاط الأجهزة...',

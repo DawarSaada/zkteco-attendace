@@ -282,7 +282,7 @@ export default function ShiftsPage() {
                                         {es.employees?.full_name || `PIN ${es.pin}`}
                                     </div>
                                     <div className="text-slate-400 font-mono">
-                                        PIN: {es.pin} &bull; <span className="text-indigo-600 dark:text-indigo-400 font-medium">{es.shifts?.name}</span> ({es.shifts?.start_time?.substring(0,5) || '--:--'} - {es.shifts?.end_time?.substring(0,5) || '--:--'})
+                                        PIN: {es.pin} • <span className="text-indigo-600 dark:text-indigo-400 font-medium">{es.shifts?.name}</span> ({es.shifts?.start_time?.substring(0,5) || '--:--'} - {es.shifts?.end_time?.substring(0,5) || '--:--'})
                                     </div>
                                 </div>
                                 <button
