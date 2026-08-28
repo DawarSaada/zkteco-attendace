@@ -20,6 +20,7 @@
     "nodemailer": "^9.0.6",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "resend": "^6.24.0",
     "tailwind-merge": "^3.6.0",
     "xlsx": "^0.18.5"
   },
