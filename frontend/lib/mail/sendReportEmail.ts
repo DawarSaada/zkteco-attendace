@@ -1,0 +1,127 @@
+import nodemailer from 'nodemailer';
+import { GeneratedReportResult } from '@/lib/reports/generateBranchReportBuffer';
+
+interface SendReportOptions {
+    recipients: string[];
+    reportResult: GeneratedReportResult;
+}
+
+export async function sendReportEmail({ recipients, reportResult }: SendReportOptions): Promise<{ success: boolean; messageId?: string; simulated?: boolean; error?: string }> {
+    const {
+        excelBuffer,
+        excelFileName,
+        branchName,
+        startDate,
+        endDate,
+        totalEmployees,
+        daysPresentCount,
+        totalHoursFormatted
+    } = reportResult;
+
+    const host = process.env.SMTP_HOST;
+    const port = Number(process.env.SMTP_PORT) || 587;
+    const user = process.env.SMTP_USER;
+    const pass = process.env.SMTP_PASS;
+    const fromAddress = process.env.SMTP_FROM || `Dawar Al-Saada Attendance <${user || 'no-reply@dawarsaada.com'}>`;
+
+    // Simulated email mode if SMTP credentials are not configured yet
+    if (!host || !user || !pass) {
+        console.warn(`[Mail Dispatch] SMTP credentials not fully configured (SMTP_HOST, SMTP_USER, SMTP_PASS). Simulated dispatch for ${branchName} to ${recipients.join(', ')}`);
+        return {
+            success: true,
+            simulated: true,
+            messageId: `simulated_${Date.now()}`
+        };
+    }
+
+    try {
+        const transporter = nodemailer.createTransport({
+            host,
+            port,
+            secure: port === 465,
+            auth: { user, pass }
+        });
+
+        const subject = `📊 Monthly Attendance Report: ${branchName} (${startDate} to ${endDate})`;
+        
+        const htmlContent = `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="utf-8">
+            <style>
+                body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; color: #1e293b; margin: 0; padding: 24px; }
+                .card { background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 32px; max-width: 600px; margin: 0 auto; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
+                .brand { display: flex; align-items: center; gap: 12px; border-bottom: 2px solid #3b82f6; padding-bottom: 16px; margin-bottom: 24px; }
+                .title { font-size: 20px; font-weight: 700; color: #0f172a; margin: 0; }
+                .subtitle { font-size: 13px; color: #64748b; margin-top: 4px; }
+                .stat-box { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 24px 0; background-color: #f1f5f9; padding: 16px; border-radius: 12px; }
+                .stat-item { text-align: center; }
+                .stat-label { font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 600; }
+                .stat-val { font-size: 18px; font-weight: 800; color: #0f172a; margin-top: 4px; }
+                .footer { font-size: 12px; color: #94a3b8; text-align: center; margin-top: 32px; border-top: 1px solid #f1f5f9; padding-top: 16px; }
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <div class="brand">
+                    <div>
+                        <h1 class="title">Dawar Al-Saada Attendance System</h1>
+                        <p class="subtitle">Automated Monthly Branch Timecard Dispatch</p>
+                    </div>
+                </div>
+
+                <p>Hello,</p>
+                <p>Please find attached the automated attendance and timecard report for <strong>${branchName}</strong> covering the payroll cycle from <strong>${startDate}</strong> to <strong>${endDate}</strong>.</p>
+
+                <div class="stat-box">
+                    <div class="stat-item">
+                        <div class="stat-label">Employees</div>
+                        <div class="stat-val">${totalEmployees}</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Days Present</div>
+                        <div class="stat-val">${daysPresentCount}</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Total Duration</div>
+                        <div class="stat-val">${totalHoursFormatted}</div>
+                    </div>
+                </div>
+
+                <p>The complete day-by-day attendance spreadsheet with check-in, check-out, shifts, and timestamps has been attached to this email as an Excel spreadsheet (<strong>${excelFileName}</strong>).</p>
+
+                <div class="footer">
+                    <p>Sent automatically by Dawar Al-Saada BioTime Pro Management Server &bull; Port 8088</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        `;
+
+        const info = await transporter.sendMail({
+            from: fromAddress,
+            to: recipients.join(', '),
+            subject,
+            html: htmlContent,
+            attachments: [
+                {
+                    filename: excelFileName,
+                    content: excelBuffer,
+                    contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                }
+            ]
+        });
+
+        return {
+            success: true,
+            messageId: info.messageId
+        };
+    } catch (err: unknown) {
+        console.error('[Mail Dispatch Error]', err);
+        return {
+            success: false,
+            error: err instanceof Error ? err.message : 'Unknown SMTP dispatch error'
+        };
+    }
+}

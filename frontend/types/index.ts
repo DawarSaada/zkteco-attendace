@@ -104,3 +104,30 @@ export interface GroupedReportEmployee {
     totalMinutes?: number;
     daysPresent?: number;
 }
+
+export interface ReportAutomation {
+    id: string;
+    branch: string;
+    recipient_emails: string[];
+    cycle_start_day: number;
+    cycle_end_day: number;
+    dispatch_day: number;
+    dispatch_time: string;
+    report_format: 'excel' | 'pdf' | 'both';
+    is_active: boolean;
+    last_run_at?: string | null;
+    last_run_status?: string | null;
+    created_at?: string;
+}
+
+export interface ReportAutomationLog {
+    id: string;
+    automation_id?: string | null;
+    branch: string;
+    period_start: string;
+    period_end: string;
+    recipients: string[];
+    status: 'SUCCESS' | 'FAILED';
+    error_message?: string | null;
+    created_at: string;
+}

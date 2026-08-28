@@ -75,7 +75,36 @@ CREATE TABLE IF NOT EXISTS public.device_commands (
     executed_at TIMESTAMPTZ
 );
 
--- 7. Reporting SQL View (Aggregated strictly by PIN + DATE so 1 employee only ever has 1 row per date)
+-- 7. Automated Monthly Reports Configuration Table
+CREATE TABLE IF NOT EXISTS public.report_automations (
+    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    branch VARCHAR(255) NOT NULL,
+    recipient_emails TEXT[] NOT NULL,
+    cycle_start_day INT DEFAULT 26,
+    cycle_end_day INT DEFAULT 25,
+    dispatch_day INT DEFAULT 26,
+    dispatch_time TIME DEFAULT '08:00:00',
+    report_format VARCHAR(20) DEFAULT 'both', -- 'excel', 'pdf', 'both'
+    is_active BOOLEAN DEFAULT true,
+    last_run_at TIMESTAMPTZ,
+    last_run_status VARCHAR(50),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 8. Automated Reports Dispatch Audit Logs Table
+CREATE TABLE IF NOT EXISTS public.report_automation_logs (
+    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    automation_id UUID REFERENCES public.report_automations(id) ON DELETE SET NULL,
+    branch VARCHAR(255),
+    period_start DATE,
+    period_end DATE,
+    recipients TEXT[],
+    status VARCHAR(50), -- 'SUCCESS', 'FAILED'
+    error_message TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 9. Reporting SQL View (Aggregated strictly by PIN + DATE so 1 employee only ever has 1 row per date)
 CREATE OR REPLACE VIEW public.daily_attendance_summary AS
 SELECT 
   a.pin,
@@ -98,15 +127,17 @@ GROUP BY
   a.pin, 
   DATE(a.timestamp);
 
--- 8. Enable RLS (Row Level Security)
+-- 10. Enable RLS (Row Level Security)
 ALTER TABLE public.devices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.employees ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.attendance_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.device_commands ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.shifts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.employee_shifts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.report_automations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.report_automation_logs ENABLE ROW LEVEL SECURITY;
 
--- 9. Setup RLS Policies (Safe creation if already existing)
+-- 11. Setup RLS Policies (Safe creation if already existing)
 DO $$ 
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'devices' AND policyname = 'Enable all access for all users') THEN
@@ -121,15 +152,21 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'device_commands' AND policyname = 'Enable all access for all users') THEN
         CREATE POLICY "Enable all access for all users" ON public.device_commands FOR ALL USING (true);
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tabUATION_NAME = 'shifts' AND policyname = 'Enable all access for all users') THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'shifts' AND policyname = 'Enable all access for all users') THEN
         CREATE POLICY "Enable all access for all users" ON public.shifts FOR ALL USING (true);
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'employee_shifts' AND policyname = 'Enable all access for all users') THEN
         CREATE POLICY "Enable all access for all users" ON public.employee_shifts FOR ALL USING (true);
     END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'report_automations' AND policyname = 'Enable all access for all users') THEN
+        CREATE POLICY "Enable all access for all users" ON public.report_automations FOR ALL USING (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'report_automation_logs' AND policyname = 'Enable all access for all users') THEN
+        CREATE POLICY "Enable all access for all users" ON public.report_automation_logs FOR ALL USING (true);
+    END IF;
 END $$;
 
--- 10. Enable Supabase Realtime Publication for Live Monitoring
+-- 12. Enable Supabase Realtime Publication for Live Monitoring
 DO $$
 BEGIN
     IF NOT EXISTS (
@@ -139,10 +176,10 @@ BEGIN
         BEGIN
             ALTER PUBLICATION supabase_realtime ADD TABLE public.attendance_logs;
         EXCEPTION WHEN OTHERS THEN
-            NULL; -- Ignore if publication doesn't exist or already added
+            NULL;
         END;
     END IF;
 END $$;
 
--- 11. Grant permissions
+-- 13. Grant permissions
 GRANT SELECT ON public.daily_attendance_summary TO authenticated, anon, service_role;

@@ -10,6 +10,7 @@ import {
     Clock, 
     LogOut,
     Fingerprint,
+    MailCheck,
     X
 } from 'lucide-react';
 import { useNav } from '@/components/NavContext';
@@ -30,6 +31,7 @@ export function Sidebar({ userEmail, onLogout }: SidebarProps) {
         { href: '/dashboard', labelKey: 'nav_overview', icon: LayoutDashboard },
         { href: '/dashboard/live', labelKey: 'nav_live', icon: Activity, badge: 'Live' },
         { href: '/dashboard/reports', labelKey: 'nav_reports', icon: FileSpreadsheet },
+        { href: '/dashboard/automation', labelKey: 'nav_automation', icon: MailCheck },
         { href: '/dashboard/employees', labelKey: 'nav_employees', icon: Users },
         { href: '/dashboard/shifts', labelKey: 'nav_shifts', icon: Clock },
         { href: '/dashboard/devices', labelKey: 'nav_devices', icon: MonitorSmartphone },
