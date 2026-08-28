@@ -81,11 +81,25 @@ export async function sendReportEmail({ recipients, reportResult }: SendReportOp
     </html>
     `;
 
+function getResendFromAddress(): string {
+    const raw = (process.env.RESEND_FROM || '').trim();
+    if (!raw) {
+        return 'Dawar Al-Saada <onboarding@resend.dev>';
+    }
+    if (raw.includes('<') && raw.includes('>')) {
+        return raw;
+    }
+    if (raw.includes('@')) {
+        return `Dawar Al-Saada <${raw}>`;
+    }
+    return `${raw} <onboarding@resend.dev>`;
+}
+
     // 1. Prioritize Resend API if RESEND_API_KEY is provided
     if (resendApiKey) {
         try {
             const resend = new Resend(resendApiKey);
-            const fromAddress = process.env.RESEND_FROM || process.env.SMTP_FROM || 'Dawar Al-Saada Attendance <onboarding@resend.dev>';
+            const fromAddress = getResendFromAddress();
 
             const response = await resend.emails.send({
                 from: fromAddress,
