@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
+import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Employee, Device, DailyAttendanceSummary, RawPunch } from '@/types';
@@ -92,6 +92,14 @@ export default function ReportsPage() {
         } else if (rangeType === 'weekly') {
             setStartDate(format(startOfWeek(today, { weekStartsOn: 1 }), 'yyyy-MM-dd'));
             setEndDate(format(endOfWeek(today, { weekStartsOn: 1 }), 'yyyy-MM-dd'));
+        } else if (rangeType === 'payroll') {
+            const prevMonth = subMonths(today, 1);
+            const startYear = prevMonth.getFullYear();
+            const startMonth = String(prevMonth.getMonth() + 1).padStart(2, '0');
+            const endYear = today.getFullYear();
+            const endMonth = String(today.getMonth() + 1).padStart(2, '0');
+            setStartDate(`${startYear}-${startMonth}-26`);
+            setEndDate(`${endYear}-${endMonth}-25`);
         } else if (rangeType === 'monthly') {
             setStartDate(format(startOfMonth(today), 'yyyy-MM-dd'));
             setEndDate(format(endOfMonth(today), 'yyyy-MM-dd'));
@@ -601,6 +609,7 @@ export default function ReportsPage() {
                         className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 cursor-pointer"
                     >
                         <option value="monthly">{t('range_monthly')}</option>
+                        <option value="payroll">{t('range_payroll')}</option>
                         <option value="weekly">{t('range_weekly')}</option>
                         <option value="daily">{t('range_daily')}</option>
                         <option value="custom">{t('range_custom')}</option>

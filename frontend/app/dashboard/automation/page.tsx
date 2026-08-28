@@ -14,9 +14,7 @@ import {
     Building2, 
     CheckCircle2, 
     AlertCircle, 
-    X,
-    FileSpreadsheet,
-    FileText
+    X
 } from 'lucide-react';
 
 export default function AutomationPage() {
@@ -33,6 +31,9 @@ export default function AutomationPage() {
     const [modalBranch, setModalBranch] = useState('all');
     const [modalEmails, setModalEmails] = useState('');
     const [modalFormat, setModalFormat] = useState<'excel' | 'pdf' | 'both'>('both');
+    const [modalStartDay, setModalStartDay] = useState(26);
+    const [modalEndDay, setModalEndDay] = useState(25);
+    const [modalDispatchDay, setModalDispatchDay] = useState(26);
     const [modalIsActive, setModalIsActive] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
 
@@ -89,6 +90,9 @@ export default function AutomationPage() {
         setModalBranch(branches[0] || 'all');
         setModalEmails('');
         setModalFormat('both');
+        setModalStartDay(26);
+        setModalEndDay(25);
+        setModalDispatchDay(26);
         setModalIsActive(true);
         setIsModalOpen(true);
     };
@@ -98,6 +102,9 @@ export default function AutomationPage() {
         setModalBranch(rule.branch);
         setModalEmails(rule.recipient_emails.join(', '));
         setModalFormat(rule.report_format);
+        setModalStartDay(rule.cycle_start_day || 26);
+        setModalEndDay(rule.cycle_end_day || 25);
+        setModalDispatchDay(rule.dispatch_day || 26);
         setModalIsActive(rule.is_active);
         setIsModalOpen(true);
     };
@@ -122,9 +129,9 @@ export default function AutomationPage() {
                 id: editingRule?.id,
                 branch: modalBranch,
                 recipient_emails: emailList,
-                cycle_start_day: 26,
-                cycle_end_day: 25,
-                dispatch_day: 26,
+                cycle_start_day: Number(modalStartDay),
+                cycle_end_day: Number(modalEndDay),
+                dispatch_day: Number(modalDispatchDay),
                 dispatch_time: '08:00:00',
                 report_format: modalFormat,
                 is_active: modalIsActive
@@ -274,6 +281,7 @@ export default function AutomationPage() {
                         <thead className="bg-slate-50/80 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-800/80">
                             <tr>
                                 <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">{t('filter_branch')}</th>
+                                <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Payroll Cycle</th>
                                 <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">{t('auto_recipients')}</th>
                                 <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">{t('auto_format')}</th>
                                 <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">{t('auto_status')}</th>
@@ -290,6 +298,14 @@ export default function AutomationPage() {
                                             <div className="flex items-center gap-2">
                                                 <Building2 size={16} className="text-blue-500" />
                                                 <span>{rule.branch === 'all' ? t('filter_all_branches') : rule.branch}</span>
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4 font-mono text-xs text-slate-600 dark:text-slate-400">
+                                            <div className="font-semibold text-slate-800 dark:text-slate-200">
+                                                Day {rule.cycle_start_day || 26} &rarr; Day {rule.cycle_end_day || 25}
+                                            </div>
+                                            <div className="text-[11px] text-slate-400">
+                                                Dispatch: {rule.dispatch_day || 26}th at 08:00
                                             </div>
                                         </td>
                                         <td className="px-6 py-4">
@@ -349,7 +365,7 @@ export default function AutomationPage() {
                             })}
                             {rules.length === 0 && (
                                 <tr>
-                                    <td colSpan={5} className="px-6 py-12 text-center text-slate-400 dark:text-slate-500 text-sm">
+                                    <td colSpan={6} className="px-6 py-12 text-center text-slate-400 dark:text-slate-500 text-sm">
                                         <MailCheck size={32} className="mx-auto mb-2 text-slate-300 dark:text-slate-700" />
                                         {t('auto_no_rules')}
                                     </td>
@@ -428,7 +444,7 @@ export default function AutomationPage() {
                                     {t('auto_modal_title')}
                                 </h3>
                                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                                    {t('auto_payroll_desc')}
+                                    Configure custom payroll cycle dates and email recipients.
                                 </p>
                             </div>
                             <button
@@ -456,6 +472,60 @@ export default function AutomationPage() {
                                         <option key={b} value={b}>{b}</option>
                                     ))}
                                 </select>
+                            </div>
+
+                            {/* Customizable Payroll Cycle Date Range */}
+                            <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 space-y-3">
+                                <label className="block text-xs font-bold text-slate-900 dark:text-white">
+                                    Payroll Period Timeline Days (1 - 31)
+                                </label>
+                                <div className="grid grid-cols-3 gap-3">
+                                    <div>
+                                        <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                                            Start Day (Prev Month)
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min={1}
+                                            max={31}
+                                            required
+                                            value={modalStartDay}
+                                            onChange={e => setModalStartDay(Number(e.target.value))}
+                                            className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm font-bold text-slate-900 dark:text-white text-center focus:ring-2 focus:ring-blue-500"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                                            End Day (Curr Month)
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min={1}
+                                            max={31}
+                                            required
+                                            value={modalEndDay}
+                                            onChange={e => setModalEndDay(Number(e.target.value))}
+                                            className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm font-bold text-slate-900 dark:text-white text-center focus:ring-2 focus:ring-blue-500"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                                            Dispatch Day
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min={1}
+                                            max={31}
+                                            required
+                                            value={modalDispatchDay}
+                                            onChange={e => setModalDispatchDay(Number(e.target.value))}
+                                            className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm font-bold text-blue-600 dark:text-blue-400 text-center focus:ring-2 focus:ring-blue-500"
+                                        />
+                                    </div>
+                                </div>
+                                <p className="text-[11px] text-slate-400 leading-tight">
+                                    Example: <strong>26 to 25</strong> covers 26th of previous month through 25th of current month, and dispatches on the <strong>26th</strong> at 08:00 AM.
+                                </p>
                             </div>
 
                             {/* Recipient Emails */}
