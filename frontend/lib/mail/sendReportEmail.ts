@@ -10,15 +10,15 @@ interface SendReportOptions {
 function getResendFromAddress(): string {
     const raw = (process.env.RESEND_FROM || '').trim();
     if (!raw) {
-        return 'Dawar Al-Saada <onboarding@resend.dev>';
+        return 'Dawar Al-Saada Attendance <attendance@techydez.com.pk>';
     }
     if (raw.includes('<') && raw.includes('>')) {
         return raw;
     }
     if (raw.includes('@')) {
-        return `Dawar Al-Saada <${raw}>`;
+        return `Dawar Al-Saada Attendance <${raw}>`;
     }
-    return `${raw} <onboarding@resend.dev>`;
+    return `${raw} <attendance@techydez.com.pk>`;
 }
 
 export async function sendReportEmail({ recipients, reportResult }: SendReportOptions): Promise<{ success: boolean; messageId?: string; simulated?: boolean; error?: string }> {
