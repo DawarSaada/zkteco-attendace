@@ -2,18 +2,29 @@ import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/server';
 import { generateBranchReportBuffer } from '@/lib/reports/generateBranchReportBuffer';
 import { sendReportEmail } from '@/lib/mail/sendReportEmail';
-import { format, subMonths } from 'date-fns';
+import { subMonths } from 'date-fns';
 import { ReportAutomation } from '@/types';
+
+function getSaudiDateInfo() {
+    // Saudi Arabia is AST (UTC+3)
+    const now = new Date();
+    const saudiTime = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+    const dayOfMonth = saudiTime.getUTCDate();
+    const formatted = saudiTime.toISOString().substring(0, 19).replace('T', ' ') + ' (AST / UTC+3)';
+    return { now, saudiTime, dayOfMonth, formatted };
+}
 
 function calculatePayrollWindow(startDay: number = 26, endDay: number = 25) {
     const now = new Date();
-    const prevMonth = subMonths(now, 1);
+    // Use Saudi time for month calculation
+    const saudiNow = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+    const prevMonth = subMonths(saudiNow, 1);
     const startYear = prevMonth.getFullYear();
     const startMonth = String(prevMonth.getMonth() + 1).padStart(2, '0');
     const startDate = `${startYear}-${startMonth}-${String(startDay).padStart(2, '0')}`;
 
-    const endYear = now.getFullYear();
-    const endMonth = String(now.getMonth() + 1).padStart(2, '0');
+    const endYear = saudiNow.getFullYear();
+    const endMonth = String(saudiNow.getMonth() + 1).padStart(2, '0');
     const endDate = `${endYear}-${endMonth}-${String(endDay).padStart(2, '0')}`;
 
     return { startDate, endDate };
@@ -31,6 +42,8 @@ export async function GET(request: Request) {
 
     try {
         const supabase = createAdminClient();
+        const { dayOfMonth: currentSaudiDay, formatted: saudiTimestamp } = getSaudiDateInfo();
+        const forceAll = searchParams.get('force') === 'true';
 
         // 2. Fetch all active automation rules
         const { data: rulesData, error: rulesError } = await supabase
@@ -41,10 +54,16 @@ export async function GET(request: Request) {
         if (rulesError) throw rulesError;
 
         const rules = (rulesData || []) as ReportAutomation[];
+        
+        // Filter rules that match today's date in Saudi Arabia (unless ?force=true)
+        const eligibleRules = forceAll 
+            ? rules 
+            : rules.filter(r => (r.dispatch_day || 26) === currentSaudiDay);
+
         const results = [];
 
-        // 3. Process each branch automation
-        for (const rule of rules) {
+        // 3. Process each eligible branch automation
+        for (const rule of eligibleRules) {
             const { startDate, endDate } = calculatePayrollWindow(rule.cycle_start_day, rule.cycle_end_day);
 
             try {
@@ -62,7 +81,7 @@ export async function GET(request: Request) {
                     period_end: endDate,
                     recipients: rule.recipient_emails,
                     status: mailResult.success ? 'SUCCESS' : 'FAILED',
-                    error_message: mailResult.error || (mailResult.simulated ? 'Simulated dispatch (SMTP credentials pending)' : null)
+                    error_message: mailResult.error || (mailResult.simulated ? 'Simulated dispatch (SMTP/Resend credentials pending)' : null)
                 }]);
 
                 await supabase.from('report_automations').update({
@@ -72,10 +91,12 @@ export async function GET(request: Request) {
 
                 results.push({
                     branch: rule.branch,
+                    dispatch_day: rule.dispatch_day || 26,
                     status: mailResult.success ? 'SUCCESS' : 'FAILED',
                     recipients: rule.recipient_emails,
                     startDate,
-                    endDate
+                    endDate,
+                    format: rule.report_format || 'both'
                 });
             } catch (ruleErr: unknown) {
                 console.error(`[Cron Error on rule ${rule.id} (${rule.branch})]`, ruleErr);
@@ -89,8 +110,10 @@ export async function GET(request: Request) {
 
         return NextResponse.json({
             success: true,
-            totalProcessed: rules.length,
-            timestamp: new Date().toISOString(),
+            saudiDate: saudiTimestamp,
+            currentSaudiDay,
+            totalActiveRules: rules.length,
+            totalProcessedToday: eligibleRules.length,
             results
         });
     } catch (err: unknown) {
