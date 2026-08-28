@@ -182,4 +182,7 @@ BEGIN
 END $$;
 
 -- 13. Grant permissions
-GRANT SELECT ON public.daily_attendance_summary TO authenticated, anon, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated, anon, service_role, postgres;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated, anon, service_role, postgres;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO authenticated, anon, service_role, postgres;
+GRANT SELECT ON public.daily_attendance_summary TO authenticated, anon, service_role, postgres;
