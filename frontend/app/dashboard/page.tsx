@@ -166,7 +166,7 @@ export default function DashboardOverview() {
                     </div>
                     <div className="mt-4">
                         <p className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
-                            Port 80 / HTTP
+                            Port 8088 / HTTP
                         </p>
                         <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-2">
                             {t('stat_adms_info')}
