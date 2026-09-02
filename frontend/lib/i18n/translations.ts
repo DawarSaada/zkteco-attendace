@@ -31,6 +31,7 @@ export const translations = {
         delete: 'Delete',
         save: 'Save',
         saving: 'Saving...',
+        deleting: 'Deleting...',
         cancel: 'Cancel',
         done: 'Done',
         close: 'Close',
@@ -132,6 +133,10 @@ export const translations = {
         modal_branch_label: 'Branch Location',
         modal_designation_label: 'Job Designation / Title',
         no_employees_found: 'No employees found matching current search/filter.',
+        btn_delete_employee: 'Delete Employee',
+        confirm_delete_emp_title: 'Delete Employee Profile',
+        confirm_delete_emp_desc: 'Are you sure you want to delete this employee? This will remove their profile and shift assignments.',
+        emp_deleted_success: 'Employee deleted successfully.',
 
         // Devices Page
         dev_title: 'Terminal Hardware Management',
@@ -227,6 +232,7 @@ export const translations = {
         delete: 'حذف',
         save: 'حفظ',
         saving: 'جاري الحفظ...',
+        deleting: 'جاري الحذف...',
         cancel: 'إلغاء',
         done: 'تم',
         close: 'إغلاق',
@@ -328,6 +334,10 @@ export const translations = {
         modal_branch_label: 'موقع الفرع',
         modal_designation_label: 'المسمى الوظيفي / الوظيفة',
         no_employees_found: 'لا يوجد موظفون يطابقون خيارات البحث.',
+        btn_delete_employee: 'حذف الموظف',
+        confirm_delete_emp_title: 'حذف ملف الموظف',
+        confirm_delete_emp_desc: 'هل أنت متأكد من رغبتك في حذف هذا الموظف؟ سيؤدي ذلك إلى إزالة بياناته وتعيينات الورديات.',
+        emp_deleted_success: 'تم حذف الموظف بنجاح.',
 
         // Devices Page
         dev_title: 'إدارة أجهزة البصمة',

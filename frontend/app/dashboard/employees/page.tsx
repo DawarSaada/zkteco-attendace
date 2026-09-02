@@ -8,8 +8,10 @@ import {
     Plus, 
     Search, 
     Edit, 
+    Trash2,
     Building2, 
     X,
+    AlertTriangle
 } from 'lucide-react';
 
 export default function EmployeesPage() {
@@ -31,6 +33,10 @@ export default function EmployeesPage() {
     const [branch, setBranch] = useState('');
     const [designation, setDesignation] = useState('');
     const [isSaving, setIsSaving] = useState(false);
+
+    // Deletion confirmation state
+    const [deletingEmployee, setDeletingEmployee] = useState<Employee | null>(null);
+    const [isDeleting, setIsDeleting] = useState(false);
 
     const { t, isRTL } = useLanguage();
 
@@ -117,6 +123,33 @@ export default function EmployeesPage() {
             showToast(err instanceof Error ? err.message : 'Error saving employee.', 'error');
         } finally {
             setIsSaving(false);
+        }
+    };
+
+    const handleDeleteEmployee = async () => {
+        if (!deletingEmployee) return;
+        setIsDeleting(true);
+
+        try {
+            const res = await fetch(`/api/employees?pin=${encodeURIComponent(deletingEmployee.pin)}`, {
+                method: 'DELETE'
+            });
+            const data = await res.json();
+
+            if (!res.ok) {
+                showToast(data.error || 'Failed to delete employee.', 'error');
+            } else {
+                showToast(t('emp_deleted_success'));
+                setDeletingEmployee(null);
+                if (isModalOpen && editingEmployee?.pin === deletingEmployee.pin) {
+                    setIsModalOpen(false);
+                }
+                fetchEmployees();
+            }
+        } catch (err: unknown) {
+            showToast(err instanceof Error ? err.message : 'Error deleting employee.', 'error');
+        } finally {
+            setIsDeleting(false);
         }
     };
 
@@ -311,14 +344,25 @@ export default function EmployeesPage() {
                                         {emp.designation || '-'}
                                     </td>
                                     <td className="px-6 py-4 text-right rtl:text-left">
-                                        <button
-                                            type="button"
-                                            onClick={() => openEditModal(emp)}
-                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-950/50 text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 text-xs font-semibold border border-slate-200 dark:border-slate-700/80 transition-colors cursor-pointer"
-                                        >
-                                            <Edit size={13} />
-                                            <span>{t('edit')}</span>
-                                        </button>
+                                        <div className="inline-flex items-center gap-2 justify-end">
+                                            <button
+                                                type="button"
+                                                onClick={() => openEditModal(emp)}
+                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-950/50 text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 text-xs font-semibold border border-slate-200 dark:border-slate-700/80 transition-colors cursor-pointer"
+                                                title={t('edit')}
+                                            >
+                                                <Edit size={13} />
+                                                <span>{t('edit')}</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setDeletingEmployee(emp)}
+                                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 text-xs font-semibold border border-slate-200 dark:border-slate-700/80 transition-colors cursor-pointer"
+                                                title={t('btn_delete_employee')}
+                                            >
+                                                <Trash2 size={13} />
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             ))}
@@ -428,23 +472,87 @@ export default function EmployeesPage() {
                                 />
                             </div>
 
-                            <div className="flex items-center justify-end rtl:justify-start gap-3 pt-3 border-t border-slate-200 dark:border-slate-800/80">
-                                <button
-                                    type="button"
-                                    onClick={() => setIsModalOpen(false)}
-                                    className="px-4 py-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium transition-colors cursor-pointer"
-                                >
-                                    {t('cancel')}
-                                </button>
-                                <button
-                                    type="submit"
-                                    disabled={isSaving}
-                                    className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold shadow-sm shadow-blue-500/20 disabled:opacity-50 transition-all cursor-pointer"
-                                >
-                                    {isSaving ? t('saving') : (editingEmployee ? t('save') : t('modal_register_emp'))}
-                                </button>
+                            <div className="flex items-center justify-between pt-3 border-t border-slate-200 dark:border-slate-800/80">
+                                {editingEmployee ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => setDeletingEmployee(editingEmployee)}
+                                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-xs font-semibold border border-rose-200 dark:border-rose-900/50 transition-colors cursor-pointer"
+                                    >
+                                        <Trash2 size={14} />
+                                        <span>{t('btn_delete_employee')}</span>
+                                    </button>
+                                ) : (
+                                    <div />
+                                )}
+
+                                <div className="flex items-center gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsModalOpen(false)}
+                                        className="px-4 py-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium transition-colors cursor-pointer"
+                                    >
+                                        {t('cancel')}
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        disabled={isSaving}
+                                        className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold shadow-sm shadow-blue-500/20 disabled:opacity-50 transition-all cursor-pointer"
+                                    >
+                                        {isSaving ? t('saving') : (editingEmployee ? t('save') : t('modal_register_emp'))}
+                                    </button>
+                                </div>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Delete Employee Confirmation Dialog */}
+            {deletingEmployee && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
+                    <div className="bg-white dark:bg-[#0c121e] rounded-2xl p-6 max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 animate-in zoom-in-95 duration-150">
+                        <div className="flex items-start gap-3">
+                            <div className="p-2.5 rounded-full bg-rose-100 dark:bg-rose-950/80 text-rose-600 dark:text-rose-400 shrink-0">
+                                <AlertTriangle size={20} />
+                            </div>
+                            <div>
+                                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                                    {t('confirm_delete_emp_title')}
+                                </h3>
+                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                                    {t('confirm_delete_emp_desc')}
+                                </p>
+                                <div className="mt-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-xs space-y-1">
+                                    <div className="font-semibold text-slate-900 dark:text-white">
+                                        {deletingEmployee.full_name}
+                                    </div>
+                                    <div className="font-mono text-slate-500 dark:text-slate-400">
+                                        PIN: {deletingEmployee.pin} {deletingEmployee.branch ? `• ${deletingEmployee.branch}` : ''}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center justify-end rtl:justify-start gap-3 pt-2">
+                            <button
+                                type="button"
+                                onClick={() => setDeletingEmployee(null)}
+                                disabled={isDeleting}
+                                className="px-4 py-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold transition-colors cursor-pointer"
+                            >
+                                {t('cancel')}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleDeleteEmployee}
+                                disabled={isDeleting}
+                                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-sm shadow-rose-500/20 disabled:opacity-50 transition-all cursor-pointer"
+                            >
+                                <Trash2 size={13} />
+                                <span>{isDeleting ? t('deleting') || 'Deleting...' : t('btn_delete_employee')}</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

@@ -40,3 +40,42 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
     }
 }
+
+export async function DELETE(request: Request) {
+    const auth = await requireAuthUser();
+    if (!auth.user) return auth.response!;
+
+    try {
+        const supabase = createAdminClient();
+        const { searchParams } = new URL(request.url);
+        let pin = searchParams.get('pin');
+
+        if (!pin) {
+            try {
+                const body = await request.json();
+                pin = body.pin;
+            } catch {
+                // query param is primary
+            }
+        }
+
+        if (!pin) {
+            return NextResponse.json({ error: 'PIN is required to delete employee' }, { status: 400 });
+        }
+
+        // 1. Delete associated employee shift assignments
+        await supabase.from('employee_shifts').delete().eq('pin', pin);
+
+        // 2. Delete employee from employees table
+        const { error } = await supabase
+            .from('employees')
+            .delete()
+            .eq('pin', pin);
+
+        if (error) throw error;
+
+        return NextResponse.json({ success: true, message: `Employee PIN ${pin} deleted successfully.` });
+    } catch (error: unknown) {
+        return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    }
+}
