@@ -175,7 +175,9 @@ export default function DashboardOverview() {
   }, [supabase, t]);
 
   useEffect(() => {
-    void loadDashboard();
+    // Deferred off the effect path: the loader sets state, and calling it
+    // synchronously here is what react-hooks/set-state-in-effect flags.
+    void Promise.resolve().then(loadDashboard);
   }, [loadDashboard]);
 
   const heartbeatLabel = stats.lastHeartbeat

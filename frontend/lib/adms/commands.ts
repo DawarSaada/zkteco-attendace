@@ -34,7 +34,6 @@ const FORBIDDEN = /[\t\r\n]/;
  */
 export function sanitizeField(value: unknown, maxLength = 64): string {
   return String(value ?? '')
-    // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u001f\u007f]/g, ' ')
     .replace(/[\t\r\n]/g, ' ')
     .replace(/\s+/g, ' ')

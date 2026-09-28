@@ -198,8 +198,10 @@ export async function generateBranchReportBuffer(
                 }
             ];
 
-            const worksheet = (XLSX.utils.json_to_sheet as any)(recordsWithStats, { origin: 'A4' });
-            XLSX.utils.sheet_add_aoa(worksheet, headerData, { origin: 'A1' });
+            // `json_to_sheet()` is `sheet_add_json(null, …)` at runtime, but only the
+            // latter's option type carries `origin`. Headers land at A1 either way.
+            const worksheet = XLSX.utils.aoa_to_sheet(headerData);
+            XLSX.utils.sheet_add_json(worksheet, recordsWithStats, { origin: 'A4' });
             XLSX.utils.book_append_sheet(workbook, worksheet, safeSheetName);
         });
 

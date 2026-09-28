@@ -1,5 +1,5 @@
 'use client';
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useSyncExternalStore } from 'react';
 import { translations, Language, TranslationKey } from '@/lib/i18n/translations';
 
 interface LanguageContextType {
@@ -18,37 +18,58 @@ const LanguageContext = createContext<LanguageContextType>({
     isRTL: false,
 });
 
-export function LanguageProvider({ children }: { children: React.ReactNode }) {
-    const [language, setLanguageState] = useState<Language>('en');
-    const [mounted, setMounted] = useState(false);
+const STORAGE_KEY = 'btime_language';
+const listeners = new Set<() => void>();
 
-    useEffect(() => {
-        setMounted(true);
-        const savedLang = localStorage.getItem('btime_language') as Language;
-        if (savedLang === 'ar' || savedLang === 'en') {
-            setLanguageState(savedLang);
-            document.documentElement.dir = savedLang === 'ar' ? 'rtl' : 'ltr';
-            document.documentElement.lang = savedLang;
-        } else {
-            // Default to 'en'
-            document.documentElement.dir = 'ltr';
-            document.documentElement.lang = 'en';
-        }
-    }, []);
+function subscribeToLanguage(listener: () => void) {
+    listeners.add(listener);
+    // Also fires when another tab switches the language.
+    window.addEventListener('storage', listener);
+    return () => {
+        listeners.delete(listener);
+        window.removeEventListener('storage', listener);
+    };
+}
+
+/** Must be a primitive so React can compare snapshots by value. */
+function readStoredLanguage(): Language {
+    try {
+        return localStorage.getItem(STORAGE_KEY) === 'ar' ? 'ar' : 'en';
+    } catch {
+        return 'en';
+    }
+}
+
+/** Rendered by the server and during hydration, so the markup matches. */
+function readServerLanguage(): Language {
+    return 'en';
+}
+
+export function LanguageProvider({ children }: { children: React.ReactNode }) {
+    // Reading the store instead of setting state from an effect keeps the first
+    // client render identical to the server's, so the language never has to be
+    // written back during a render pass.
+    const language = useSyncExternalStore(subscribeToLanguage, readStoredLanguage, readServerLanguage);
 
     const setLanguage = useCallback((lang: Language) => {
-        setLanguageState(lang);
-        if (typeof window !== 'undefined') {
-            localStorage.setItem('btime_language', lang);
-            document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
-            document.documentElement.lang = lang;
+        try {
+            localStorage.setItem(STORAGE_KEY, lang);
+        } catch {
+            // Storage can be unavailable; keep the in-memory switch working.
         }
+        listeners.forEach((listener) => listener());
     }, []);
 
     const toggleLanguage = useCallback(() => {
-        const nextLang = language === 'en' ? 'ar' : 'en';
-        setLanguage(nextLang);
+        setLanguage(language === 'en' ? 'ar' : 'en');
     }, [language, setLanguage]);
+
+    // Synchronises the document with the active language. A DOM side effect
+    // only — `app/layout.tsx` sets the same attributes before first paint.
+    useEffect(() => {
+        document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr';
+        document.documentElement.lang = language;
+    }, [language]);
 
     const t = useCallback((key: TranslationKey, fallback?: string): string => {
         const dict = translations[language] || translations.en;

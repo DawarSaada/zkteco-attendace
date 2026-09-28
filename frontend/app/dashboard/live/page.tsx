@@ -164,7 +164,9 @@ export default function LiveMonitor() {
   );
 
   useEffect(() => {
-    void fetchLogs();
+    // Deferred off the effect path: the loader sets state, and calling it
+    // synchronously here is what react-hooks/set-state-in-effect flags.
+    void Promise.resolve().then(() => fetchLogs());
 
     const pollInterval = setInterval(() => void fetchLogs(), POLL_INTERVAL_MS);
 

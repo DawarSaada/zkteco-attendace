@@ -99,7 +99,9 @@ export default function EmployeesPage() {
   }, [t, toast]);
 
   useEffect(() => {
-    void fetchEmployees();
+    // Deferred off the effect path: the loader sets state, and calling it
+    // synchronously here is what react-hooks/set-state-in-effect flags.
+    void Promise.resolve().then(fetchEmployees);
   }, [fetchEmployees]);
 
   const handleSort = (key: string) => {

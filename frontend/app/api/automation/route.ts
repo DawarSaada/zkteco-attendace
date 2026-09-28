@@ -13,6 +13,20 @@ import type { EmailAttachment } from '@/lib/mail/transport';
 import type { ReportResult } from '@/lib/reports/engine';
 import { subMonths } from 'date-fns';
 
+/** The columns written to `report_automations` by the create/update handler. */
+interface ReportAutomationRow {
+    branch: string;
+    recipient_emails: string[];
+    cycle_start_day: number;
+    cycle_end_day: number;
+    dispatch_day: number;
+    dispatch_time: string;
+    report_format: string;
+    report_type: string;
+    cadence: string;
+    is_active: boolean;
+}
+
 /** Excel and/or PDF attachments for a report-pack email, mirroring the cron. */
 function buildAttachments(report: ReportResult, format: string): EmailAttachment[] {
     const attachments: EmailAttachment[] = [];
@@ -238,7 +252,7 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: `Unknown cadence: ${cadence}` }, { status: 400 });
         }
 
-        const payload: Record<string, any> = {
+        const payload: ReportAutomationRow = {
             branch,
             recipient_emails,
             cycle_start_day: Number(cycle_start_day),

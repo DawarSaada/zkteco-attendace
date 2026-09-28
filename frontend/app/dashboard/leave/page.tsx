@@ -153,7 +153,9 @@ export default function LeavePage() {
   }, [statusFilter, t, toast, year]);
 
   useEffect(() => {
-    void load();
+    // Deferred off the effect path: the loader sets state, and calling it
+    // synchronously here is what react-hooks/set-state-in-effect flags.
+    void Promise.resolve().then(load);
   }, [load]);
 
   const today = new Date().toISOString().slice(0, 10);

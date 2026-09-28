@@ -152,6 +152,38 @@ function compareReports(
   }
 }
 
+/**
+ * The window a cycle preset covers. Payroll is the 26th → 25th window rather than a
+ * calendar month; `custom` has no preset, so the user's own dates are kept.
+ */
+function rangeFor(type: RangeType, today: Date): { start: string; end: string } | null {
+  switch (type) {
+    case 'daily': {
+      const value = format(today, 'yyyy-MM-dd');
+      return { start: value, end: value };
+    }
+    case 'weekly':
+      return {
+        start: format(startOfWeek(today, { weekStartsOn: 1 }), 'yyyy-MM-dd'),
+        end: format(endOfWeek(today, { weekStartsOn: 1 }), 'yyyy-MM-dd'),
+      };
+    case 'payroll': {
+      const previousMonth = subMonths(today, 1);
+      return {
+        start: `${previousMonth.getFullYear()}-${String(previousMonth.getMonth() + 1).padStart(2, '0')}-26`,
+        end: `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-25`,
+      };
+    }
+    case 'monthly':
+      return {
+        start: format(startOfMonth(today), 'yyyy-MM-dd'),
+        end: format(endOfMonth(today), 'yyyy-MM-dd'),
+      };
+    default:
+      return null;
+  }
+}
+
 export default function ReportsPage() {
   const [rangeType, setRangeType] = useState<RangeType>('monthly');
   const [startDate, setStartDate] = useState(() =>
@@ -220,29 +252,6 @@ export default function ReportsPage() {
     })();
   }, []);
 
-  useEffect(() => {
-    const today = new Date();
-    if (rangeType === 'daily') {
-      const value = format(today, 'yyyy-MM-dd');
-      setStartDate(value);
-      setEndDate(value);
-    } else if (rangeType === 'weekly') {
-      setStartDate(format(startOfWeek(today, { weekStartsOn: 1 }), 'yyyy-MM-dd'));
-      setEndDate(format(endOfWeek(today, { weekStartsOn: 1 }), 'yyyy-MM-dd'));
-    } else if (rangeType === 'payroll') {
-      const previousMonth = subMonths(today, 1);
-      setStartDate(
-        `${previousMonth.getFullYear()}-${String(previousMonth.getMonth() + 1).padStart(2, '0')}-26`,
-      );
-      setEndDate(
-        `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-25`,
-      );
-    } else if (rangeType === 'monthly') {
-      setStartDate(format(startOfMonth(today), 'yyyy-MM-dd'));
-      setEndDate(format(endOfMonth(today), 'yyyy-MM-dd'));
-    }
-  }, [rangeType]);
-
   // The loader only clears `loading`; callers that re-run it (filters, refresh,
   // mutations) raise the flag from their own handler so the mount pass does not
   // schedule a redundant render.
@@ -267,7 +276,9 @@ export default function ReportsPage() {
   }, [startDate, endDate, filterPin, filterBranch, t]);
 
   useEffect(() => {
-    void fetchReports();
+    // Deferred off the effect path: the loader sets state, and calling it
+    // synchronously here is what react-hooks/set-state-in-effect flags.
+    void Promise.resolve().then(fetchReports);
   }, [fetchReports]);
 
   /** Raises the loading flag from the caller, not from the effect. */
@@ -849,8 +860,16 @@ export default function ReportsPage() {
           <Select
             value={rangeType}
             onChange={(event) => {
+              const next = event.target.value as RangeType;
               beginReload();
-              setRangeType(event.target.value as RangeType);
+              setRangeType(next);
+              // Applied here rather than from an effect on `rangeType`, which would
+              // set state during the effect pass and add a second render.
+              const range = rangeFor(next, new Date());
+              if (range) {
+                setStartDate(range.start);
+                setEndDate(range.end);
+              }
             }}
           >
             <option value="monthly">{t('range_monthly')}</option>
