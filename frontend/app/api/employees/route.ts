@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/server';
 import { requireAuthUser, getErrorMessage } from '@/lib/auth-guard';
+import { requireRole, WRITE_ROLES } from '@/lib/auth/roles';
+import { logAudit } from '@/lib/audit';
 
 export async function GET() {
     const auth = await requireAuthUser();
@@ -22,6 +24,10 @@ export async function POST(request: Request) {
 
     try {
         const supabase = createAdminClient();
+
+        const roleGuard = await requireRole(supabase, auth.user, WRITE_ROLES);
+        if (!roleGuard.ok) return roleGuard.response;
+
         const body = await request.json();
         const { pin, full_name, department, branch, designation } = body;
 
@@ -35,6 +41,15 @@ export async function POST(request: Request) {
             .select();
         
         if (error) throw error;
+
+        await logAudit(supabase, {
+            actor: auth.user.id,
+            action: 'employee.upsert',
+            entity: 'employees',
+            entityId: pin,
+            after: data,
+        });
+
         return NextResponse.json(data);
     } catch (error: unknown) {
         return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
@@ -47,6 +62,10 @@ export async function DELETE(request: Request) {
 
     try {
         const supabase = createAdminClient();
+
+        const roleGuard = await requireRole(supabase, auth.user, WRITE_ROLES);
+        if (!roleGuard.ok) return roleGuard.response;
+
         const { searchParams } = new URL(request.url);
         let pin = searchParams.get('pin');
 
@@ -73,6 +92,13 @@ export async function DELETE(request: Request) {
             .eq('pin', pin);
 
         if (error) throw error;
+
+        await logAudit(supabase, {
+            actor: auth.user.id,
+            action: 'employee.delete',
+            entity: 'employees',
+            entityId: pin,
+        });
 
         return NextResponse.json({ success: true, message: `Employee PIN ${pin} deleted successfully.` });
     } catch (error: unknown) {

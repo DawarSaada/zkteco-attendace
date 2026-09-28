@@ -1,6 +1,19 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/server';
 import { requireAuthUser, getErrorMessage } from '@/lib/auth-guard';
+import { requireRole, canWrite, OPERATE_ROLES } from '@/lib/auth/roles';
+import { applyPunchChange, type PunchChangePayload } from '@/lib/attendance/punchChanges';
+import { logAudit } from '@/lib/audit';
+import { recomputeForPunches } from '@/lib/attendance/recompute';
+
+/**
+ * Manual punch editing.
+ *
+ * An owner/admin change applies immediately. For an operator it becomes a
+ * pending `punch_change_request` that an owner/admin must approve — payroll
+ * corrections are exactly the sort of change that should not be silent.
+ * A viewer cannot reach this handler at all.
+ */
 
 export async function GET(request: Request) {
     const auth = await requireAuthUser();
@@ -16,15 +29,12 @@ export async function GET(request: Request) {
             return NextResponse.json({ error: 'Missing pin or date parameter' }, { status: 400 });
         }
 
-        const startDate = `${date}T00:00:00.000Z`;
-        const endDate = `${date}T23:59:59.999Z`;
-
         const { data, error } = await supabase
             .from('attendance_logs')
             .select('*')
             .eq('pin', pin)
-            .gte('timestamp', startDate)
-            .lte('timestamp', endDate)
+            .gte('timestamp', `${date}T00:00:00.000Z`)
+            .lte('timestamp', `${date}T23:59:59.999Z`)
             .order('timestamp', { ascending: true });
 
         if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -34,153 +44,80 @@ export async function GET(request: Request) {
     }
 }
 
-export async function POST(request: Request) {
+async function mutate(request: Request, action: PunchChangePayload['action']) {
     const auth = await requireAuthUser();
     if (!auth.user) return auth.response!;
 
     try {
         const supabase = createAdminClient();
-        const body = await request.json();
-        const { pin, timestamp, status = '0', verify_mode = '0', work_code = 0 } = body;
-        
-        if (!pin || !timestamp) {
-            return NextResponse.json({ error: 'Missing pin or timestamp' }, { status: 400 });
+
+        const roleGuard = await requireRole(supabase, auth.user, OPERATE_ROLES);
+        if (!roleGuard.ok) return roleGuard.response;
+
+        const body = (await request.json()) as Record<string, unknown>;
+        const payload: PunchChangePayload = { ...(body as unknown as PunchChangePayload), action };
+
+        if (!payload.pin) {
+            return NextResponse.json({ error: 'Missing pin' }, { status: 400 });
         }
 
-        const isoTimestamp = new Date(timestamp).toISOString();
+        // Non-admin: queue the change for approval instead of applying it.
+        if (!canWrite(roleGuard.profile.role)) {
+            const { data, error } = await supabase
+                .from('punch_change_requests')
+                .insert([
+                    {
+                        pin: payload.pin,
+                        work_date: (body.work_date as string) ?? null,
+                        action,
+                        payload,
+                        status: 'pending',
+                        requested_by: auth.user.id,
+                    },
+                ])
+                .select()
+                .single();
 
-        // 1. Ensure employee PIN exists in employees table so foreign key constraint does not fail
-        await supabase
-            .from('employees')
-            .upsert({ pin, full_name: `Employee ${pin}` }, { onConflict: 'pin', ignoreDuplicates: true });
+            if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-        // 2. Try inserting with audit columns (is_manual, edited_by) and nullable sn
-        const insertPayload: Record<string, any> = {
-            pin,
-            timestamp: isoTimestamp,
-            status: String(status),
-            verify_mode: String(verify_mode),
-            work_code: Number(work_code) || 0,
-            sn: null,
-            is_manual: true,
-            edited_by: auth.user.id
-        };
+            await logAudit(supabase, {
+                actor: auth.user.id,
+                action: `punch.${action}.requested`,
+                entity: 'punch_change_requests',
+                entityId: (data as { id?: string })?.id ?? null,
+                after: payload,
+            });
 
-        const { data, error } = await supabase
-            .from('attendance_logs')
-            .insert([insertPayload])
-            .select();
-
-        if (error) {
-            // Fallback if is_manual / edited_by columns don't exist yet in user's Supabase schema
-            console.warn('[Manual Attendance] Insert failed with audit fields, falling back to base schema:', error.message);
-            const fallbackPayload = {
-                pin,
-                timestamp: isoTimestamp,
-                status: String(status),
-                verify_mode: String(verify_mode),
-                sn: null
-            };
-            const { data: fbData, error: fbError } = await supabase
-                .from('attendance_logs')
-                .insert([fallbackPayload])
-                .select();
-            
-            if (fbError) throw fbError;
-            return NextResponse.json({ success: true, data: fbData });
+            return NextResponse.json({ success: true, pending: true, data }, { status: 202 });
         }
 
-        return NextResponse.json({ success: true, data });
-    } catch (error: unknown) {
-        console.error('[Manual Attendance] POST error:', error);
-        return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
-    }
-}
-
-export async function PUT(request: Request) {
-    const auth = await requireAuthUser();
-    if (!auth.user) return auth.response!;
-
-    try {
-        const supabase = createAdminClient();
-        const body = await request.json();
-        const { id, pin, old_timestamp, timestamp, status, work_code } = body;
-        
-        if (!timestamp) {
-            return NextResponse.json({ error: 'Missing updated timestamp' }, { status: 400 });
+        const result = await applyPunchChange(supabase, payload, auth.user.id);
+        if (!result.ok) {
+            return NextResponse.json({ error: result.error }, { status: result.status });
         }
 
-        const newIso = new Date(timestamp).toISOString();
-
-        // Try update with audit fields
-        let updatePayload: Record<string, any> = {
-            timestamp: newIso,
-            is_manual: true,
-            edited_by: auth.user.id
-        };
-        if (status !== undefined) updatePayload.status = String(status);
-        if (work_code !== undefined) updatePayload.work_code = Number(work_code);
-
-        let query = supabase.from('attendance_logs').update(updatePayload);
-
-        if (id) {
-            query = query.eq('id', id);
-        } else if (pin && old_timestamp) {
-            query = query.eq('pin', pin).eq('timestamp', old_timestamp);
-        } else {
-            return NextResponse.json({ error: 'Missing log identifier (id or pin+old_timestamp)' }, { status: 400 });
+        try {
+            await recomputeForPunches(supabase, result.punches);
+        } catch (recomputeError) {
+            console.error('[Manual Attendance] Recompute failed:', recomputeError);
         }
 
-        const { error } = await query;
-
-        if (error) {
-            // Fallback update without audit fields if columns don't exist yet
-            console.warn('[Manual Attendance] Update failed with audit fields, falling back:', error.message);
-            const fbPayload: Record<string, any> = { timestamp: newIso };
-            if (status !== undefined) fbPayload.status = String(status);
-
-            let fbQuery = supabase.from('attendance_logs').update(fbPayload);
-            if (id) {
-                fbQuery = fbQuery.eq('id', id);
-            } else if (pin && old_timestamp) {
-                fbQuery = fbQuery.eq('pin', pin).eq('timestamp', old_timestamp);
-            }
-            const { error: fbErr } = await fbQuery;
-            if (fbErr) throw fbErr;
-        }
+        await logAudit(supabase, {
+            actor: auth.user.id,
+            action: `punch.${action}`,
+            entity: 'attendance_logs',
+            entityId: payload.id ?? null,
+            before: action === 'delete' ? payload : undefined,
+            after: action === 'delete' ? undefined : payload,
+        });
 
         return NextResponse.json({ success: true });
     } catch (error: unknown) {
-        console.error('[Manual Attendance] PUT error:', error);
+        console.error(`[Manual Attendance] ${action} error:`, error);
         return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
     }
 }
 
-export async function DELETE(request: Request) {
-    const auth = await requireAuthUser();
-    if (!auth.user) return auth.response!;
-
-    try {
-        const supabase = createAdminClient();
-        const body = await request.json();
-        const { id, pin, timestamp } = body;
-        
-        let query = supabase.from('attendance_logs').delete();
-
-        if (id) {
-            query = query.eq('id', id);
-        } else if (pin && timestamp) {
-            query = query.eq('pin', pin).eq('timestamp', timestamp);
-        } else {
-            return NextResponse.json({ error: 'Missing identifier to delete' }, { status: 400 });
-        }
-
-        const { error } = await query;
-        if (error) throw error;
-
-        return NextResponse.json({ success: true });
-    } catch (error: unknown) {
-        console.error('[Manual Attendance] DELETE error:', error);
-        return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
-    }
-}
+export const POST = (request: Request) => mutate(request, 'add');
+export const PUT = (request: Request) => mutate(request, 'edit');
+export const DELETE = (request: Request) => mutate(request, 'delete');

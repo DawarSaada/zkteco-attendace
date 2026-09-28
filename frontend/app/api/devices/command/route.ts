@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/server';
 import { requireAuthUser, getErrorMessage } from '@/lib/auth-guard';
+import { requireRole, WRITE_ROLES } from '@/lib/auth/roles';
+import { logAudit } from '@/lib/audit';
 
 export async function POST(request: Request) {
     const auth = await requireAuthUser();
@@ -8,6 +10,10 @@ export async function POST(request: Request) {
 
     try {
         const supabase = createAdminClient();
+
+        const roleGuard = await requireRole(supabase, auth.user, WRITE_ROLES);
+        if (!roleGuard.ok) return roleGuard.response;
+
         const body = await request.json();
         const { sn, command_str } = body;
         
@@ -24,7 +30,15 @@ export async function POST(request: Request) {
             }]);
 
         if (error) throw error;
-        
+
+        await logAudit(supabase, {
+            actor: auth.user.id,
+            action: 'device.command',
+            entity: 'device_commands',
+            entityId: sn,
+            after: { sn, command_str },
+        });
+
         return NextResponse.json({ success: true });
     } catch (error: unknown) {
         return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });

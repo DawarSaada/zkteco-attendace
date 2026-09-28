@@ -32,6 +32,9 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# The template must be tracked: a fresh clone needs it to know which variables
+# exist (B4's ADMS token and B8's cron secret were both missing from it).
+!.env.example
 
 # vercel
 .vercel

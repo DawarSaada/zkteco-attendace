@@ -1,24 +1,9 @@
-import { Resend } from 'resend';
-import nodemailer from 'nodemailer';
 import { GeneratedReportResult } from '@/lib/reports/generateBranchReportBuffer';
+import { deliverEmail, type EmailAttachment } from '@/lib/mail/transport';
 
 interface SendReportOptions {
     recipients: string[];
     reportResult: GeneratedReportResult;
-}
-
-function getResendFromAddress(): string {
-    const raw = (process.env.RESEND_FROM || '').trim();
-    if (!raw) {
-        return 'Dawar Al-Saada Attendance <attendance@techydez.com.pk>';
-    }
-    if (raw.includes('<') && raw.includes('>')) {
-        return raw;
-    }
-    if (raw.includes('@')) {
-        return `Dawar Al-Saada Attendance <${raw}>`;
-    }
-    return `${raw} <attendance@techydez.com.pk>`;
 }
 
 export async function sendReportEmail({ recipients, reportResult }: SendReportOptions): Promise<{ success: boolean; messageId?: string; simulated?: boolean; error?: string }> {
@@ -36,15 +21,9 @@ export async function sendReportEmail({ recipients, reportResult }: SendReportOp
         totalHoursFormatted
     } = reportResult;
 
-    const resendApiKey = process.env.RESEND_API_KEY;
-    const smtpHost = process.env.SMTP_HOST;
-    const smtpUser = process.env.SMTP_USER;
-    const smtpPass = process.env.SMTP_PASS;
-
     const subject = `📊 Monthly Attendance Report: ${branchName} (${startDate} to ${endDate})`;
-    
-    // Build attachments matching the selected format
-    const attachments: Array<{ filename: string; content: Buffer; contentType?: string }> = [];
+
+    const attachments: EmailAttachment[] = [];
     if (excelBuffer && excelFileName) {
         attachments.push({
             filename: excelFileName,
@@ -121,83 +100,5 @@ export async function sendReportEmail({ recipients, reportResult }: SendReportOp
     </html>
     `;
 
-    // 1. Prioritize Resend API if RESEND_API_KEY is provided
-    if (resendApiKey) {
-        try {
-            const resend = new Resend(resendApiKey);
-            const fromAddress = getResendFromAddress();
-
-            const response = await resend.emails.send({
-                from: fromAddress,
-                to: recipients,
-                subject,
-                html: htmlContent,
-                attachments: attachments.map(a => ({
-                    filename: a.filename,
-                    content: a.content
-                }))
-            });
-
-            if (response.error) {
-                console.error('[Resend Error]', response.error);
-                return {
-                    success: false,
-                    error: response.error.message || 'Resend delivery failed'
-                };
-            }
-
-            return {
-                success: true,
-                messageId: response.data?.id
-            };
-        } catch (err: unknown) {
-            console.error('[Resend Exception]', err);
-            return {
-                success: false,
-                error: err instanceof Error ? err.message : 'Unknown Resend error'
-            };
-        }
-    }
-
-    // 2. Fallback to standard SMTP if SMTP_HOST is configured
-    if (smtpHost && smtpUser && smtpPass) {
-        try {
-            const port = Number(process.env.SMTP_PORT) || 587;
-            const fromAddress = process.env.SMTP_FROM || `Dawar Al-Saada Attendance <${smtpUser}>`;
-
-            const transporter = nodemailer.createTransport({
-                host: smtpHost,
-                port,
-                secure: port === 465,
-                auth: { user: smtpUser, pass: smtpPass }
-            });
-
-            const info = await transporter.sendMail({
-                from: fromAddress,
-                to: recipients.join(', '),
-                subject,
-                html: htmlContent,
-                attachments
-            });
-
-            return {
-                success: true,
-                messageId: info.messageId
-            };
-        } catch (err: unknown) {
-            console.error('[SMTP Error]', err);
-            return {
-                success: false,
-                error: err instanceof Error ? err.message : 'Unknown SMTP dispatch error'
-            };
-        }
-    }
-
-    // 3. Fallback to Simulated Mode if neither Resend nor SMTP is configured yet
-    console.warn(`[Mail Dispatch] No RESEND_API_KEY or SMTP credentials configured. Simulated dispatch for ${branchName} to ${recipients.join(', ')}`);
-    return {
-        success: true,
-        simulated: true,
-        messageId: `simulated_${Date.now()}`
-    };
+    return deliverEmail({ recipients, subject, html: htmlContent, attachments });
 }

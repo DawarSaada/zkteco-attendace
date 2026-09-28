@@ -1,76 +1,87 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createAdminClient } from '@/lib/supabase/server';
+import { authorizeDeviceRequest } from '@/lib/adms-auth';
+import { reconcileStuckCommands, reserveSequences } from '@/lib/adms/queue';
 
-function getSupabase() {
-    return createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+/** Cap the work handed out per poll so one response cannot grow unbounded. */
+const MAX_PER_POLL = 20;
+
+interface PendingCommand {
+  id: string;
+  command_str: string | null;
+  device_seq: number | null;
+  attempts: number | null;
 }
 
-// Shared fail-closed security check for ADMS communication
-function isAuthorized(request: Request): boolean {
-    const expectedToken = process.env.ADMS_SECRET_TOKEN;
-    if (!expectedToken) return true; // Allow if unconfigured (backwards compatibility)
-    
-    const { searchParams } = new URL(request.url);
-    const token = searchParams.get('token');
-    return Boolean(token && token === expectedToken);
-}
 
 export async function GET(request: Request) {
-    if (!isAuthorized(request)) {
-        return new NextResponse("Unauthorized\n", { status: 401 });
+    const auth = authorizeDeviceRequest(request);
+    if (!auth.ok) {
+        return new NextResponse(`${auth.reason}\n`, { status: auth.status });
     }
 
-    const supabase = getSupabase();
+    const supabase = createAdminClient();
     const { searchParams } = new URL(request.url);
     const SN = searchParams.get('SN');
-    
+
     if (!SN) return new NextResponse("OK\n", { status: 200 });
 
     try {
-        // Fetch PENDING commands for this device
-        const { data: commands, error } = await supabase
+        // Retry lost commands before handing out new work, so a command cannot
+        // sit in SENT forever after a dropped acknowledgement (H5).
+        await reconcileStuckCommands(supabase, SN);
+
+        const { data, error } = await supabase
             .from('device_commands')
-            .select('*')
+            .select('id, command_str, device_seq, attempts')
             .eq('sn', SN)
             .eq('status', 'PENDING')
-            .order('created_at', { ascending: true });
+            .order('created_at', { ascending: true })
+            .limit(MAX_PER_POLL);
 
         if (error) {
-            console.error('Error fetching device commands:', error.message);
+            console.error('[getrequest] Error fetching device commands:', error.message);
             return new NextResponse("OK\n", { status: 200 });
         }
 
-        if (!commands || commands.length === 0) {
+        const commands = (data ?? []) as PendingCommand[];
+        if (commands.length === 0) {
             return new NextResponse("OK\n", { status: 200 });
+        }
+
+        // Rows queued before `device_seq` existed still need a stable ID.
+        const missingSeq = commands.filter((cmd) => cmd.device_seq === null);
+        if (missingSeq.length > 0) {
+            const sequences = await reserveSequences(supabase, SN, missingSeq.length);
+            for (let i = 0; i < missingSeq.length; i += 1) {
+                missingSeq[i].device_seq = sequences[i];
+                await supabase
+                    .from('device_commands')
+                    .update({ device_seq: sequences[i] })
+                    .eq('id', missingSeq[i].id);
+            }
         }
 
         let responseString = "";
-        const sentIds: string[] = [];
+        const sentAt = new Date().toISOString();
 
-        // Format commands for ADMS: C:<Command ID>:<Command String>
-        commands.forEach((cmd, index) => {
-            const cmdId = index + 1; 
-            const commandText = cmd.command_str || '';
-            if (commandText) {
-                responseString += `C:${cmdId}:${commandText}\n`;
-                sentIds.push(cmd.id);
-            }
-        });
-
-        if (sentIds.length > 0) {
-            // Progression: Transition status from PENDING to SENT
+        for (const cmd of commands) {
+            if (!cmd.command_str || cmd.device_seq === null) continue;
+            // The device echoes this exact ID back as `ID=<n>`.
+            responseString += `C:${cmd.device_seq}:${cmd.command_str}\n`;
             await supabase
                 .from('device_commands')
-                .update({ status: 'SENT' })
-                .in('id', sentIds);
+                .update({
+                    status: 'SENT',
+                    sent_at: sentAt,
+                    attempts: (cmd.attempts ?? 0) + 1,
+                })
+                .eq('id', cmd.id);
         }
 
         return new NextResponse(responseString || "OK\n", { status: 200 });
     } catch (err: unknown) {
-        console.error('getrequest handler error:', err);
+        console.error('[getrequest] handler error:', err);
         return new NextResponse("OK\n", { status: 200 });
     }
 }
