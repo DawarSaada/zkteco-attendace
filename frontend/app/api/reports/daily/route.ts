@@ -31,12 +31,16 @@ async function fetchComputed(
 
     if (pin && pin !== 'all') query = query.eq('pin', pin);
 
+    // The roster is independent of the range, so it rides along with the main
+    // query instead of costing a second round trip after it.
+    const employeesPromise = supabase
+        .from('employees')
+        .select('pin, full_name, department, branch');
+
     const { data, error } = await query;
     if (error || !data || data.length === 0) return null;
 
-    const { data: employees } = await supabase
-        .from('employees')
-        .select('pin, full_name, department, branch');
+    const { data: employees } = await employeesPromise;
 
     const employeeMap = new Map<
         string,

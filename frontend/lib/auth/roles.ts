@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import type { SupabaseClient, User } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { AuthUser } from '@/lib/auth-guard';
 
 /**
  * Role model.
@@ -64,7 +65,7 @@ function normalize(row: ProfileRow): Profile {
 
 let warnedMissingTable = false;
 
-export async function getProfile(supabase: SupabaseClient, user: User): Promise<Profile> {
+export async function getProfile(supabase: SupabaseClient, user: AuthUser): Promise<Profile> {
   // `select('*')` on purpose: a deployment with phase4 applied but phase7 not
   // yet has no `employee_pin` column, and naming it would make every profile
   // read fail — which the code below would mistake for "no profiles table" and
@@ -131,7 +132,7 @@ export type RoleGuardResult =
 
 export async function requireRole(
   supabase: SupabaseClient,
-  user: User,
+  user: AuthUser,
   allowed: AppRole[],
 ): Promise<RoleGuardResult> {
   const profile = await getProfile(supabase, user);

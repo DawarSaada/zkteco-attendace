@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { getVerifiedUser } from '@/lib/auth-guard';
 import { getProfile } from '@/lib/auth/roles';
 import { Sidebar } from '@/components/Sidebar';
 import { Header } from '@/components/Header';
@@ -16,9 +17,9 @@ export default async function DashboardLayout({
   children: React.ReactNode;
 }) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Verified locally against the project's JWKS rather than at the Auth server:
+  // this runs on every navigation, and the identity is all the layout needs.
+  const user = await getVerifiedUser(supabase);
 
   if (!user) {
     redirect('/login');
