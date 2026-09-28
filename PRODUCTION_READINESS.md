@@ -314,7 +314,7 @@ It is also incomplete: it omits `ADMS_SECRET_TOKEN` (required by B4) and underse
 | `RESEND_API_KEY` / `RESEND_FROM` | ✅ | from address must be on a verified domain |
 | `SMTP_*` | optional | fallback path only |
 
-Also required outside env: Supabase Auth site + redirect URLs configured; `attendance_logs` added to the `supabase_realtime` publication; SQL migrations run **in order** (`0001` → `0002`); Vercel cron enabled.
+Also required outside env: Supabase Auth site + redirect URLs configured; `attendance_logs` added to the `supabase_realtime` publication; SQL migrations run **in order** — `database_schema.sql` → `secure_rls.sql` → `attendance_engine.sql` → `phase2_provisioning.sql` → `phase3_leave_exceptions.sql` → `phase4_roles_audit.sql` → `phase5_reporting.sql` → `phase7_self_service.sql` → `device_ingest_stats.sql`; Vercel cron enabled. Per the §18 audit, only the migrations through `phase5`'s tables are currently applied.
 
 ---
 
@@ -764,23 +764,44 @@ Migrations: [`phase7_self_service.sql`](./phase7_self_service.sql) adds
 
 ---
 
-## 16. Known lint debt (deliberately not fixed here)
+## 16. Quality gates — lint cleared, CI enforced
 
-`npm run lint` reports **17 errors / 3 warnings**, none of them new in Phases 1–7:
+`npm run lint` used to report **17 errors / 3 warnings**. It now reports **0 problems**, and
+`.github/workflows/ci.yml` gates every pull request (and every push to `main`) on three commands,
+all from `frontend/`: `npx tsc --noEmit`, `npm run lint`, `npm test`. The job pins Node 24, because
+`npm test` runs the `.ts` test files directly and needs Node's stable type stripping (22.18+).
 
-- **14 × `react-hooks/set-state-in-effect`** — the app-wide
-  `const load = useCallback(async () => { setIsLoading(true); … }); useEffect(() => { void load(); }, [load])`
-  pattern. React's guidance is to set state in a callback (e.g. inside a promise `.then`) rather
-  than synchronously on the effect path. The self-service page uses the clean form
-  (`fetchSummary()` at module scope, setState only in `.then`); the rest of the app predates it.
-  Fixing it is a mechanical, page-by-page change with a real regression surface (every page's
-  loading/refresh timing), so it is queued rather than smuggled into a feature phase.
-- **3 × `@typescript-eslint/no-explicit-any`** — `api/automation`, `api/reports/export`,
-  `lib/reports/generateBranchReportBuffer`.
-- **3 warnings** — an unused `mounted` flag in `LanguageContext`, an unused `error` binding in
-  `lib/supabase/server.ts`, and one stale `eslint-disable` directive in `lib/adms/commands.ts`.
+### The 14 `react-hooks/set-state-in-effect` errors
 
-`npm test` is the real gate for the engine; lint is not yet enforced in CI.
+The flagged shape was the app-wide
+`const load = useCallback(async () => { …setState… }); useEffect(() => { void load(); }, [load])`.
+The loader sets state, and *invoking it synchronously on the effect path* is what the rule rejects.
+The loader bodies are unchanged; only the invocation is deferred by one microtask
+(`void Promise.resolve().then(load)`), so the updates land in an async continuation — exactly how
+every event-handler caller already ran them. The initial `useState(true)` still covers first paint,
+so no extra render is added and loading/refresh timing is unchanged. Verified in the browser across
+the affected routes: dashboard, reports, devices, live, users, employees, shifts, automation,
+provisioning, leave.
+
+Two of the sites were fixed as genuine findings rather than deferred:
+
+- **`app/dashboard/reports/page.tsx`** derived its date window from `rangeType` inside an effect —
+  state derived from state, paying a second render on every cycle change. The window is now a pure
+  `rangeFor(type, today)` helper applied by the `<Select>`'s own handler. Verified end to end by
+  reading the requests the page issues: weekly = Mon 2026-09-28 → Sun 2026-10-04, payroll =
+  2026-08-26 → 2026-09-25, daily = a single day, and `custom` still leaves the user's dates alone.
+- **`components/LanguageContext.tsx`** wrote both an unused `mounted` flag and the language from a
+  mount effect. It now reads a small external store through `useSyncExternalStore`, with `'en'` as
+  the server snapshot, so the first client render matches the server's and the language is never
+  written back during a render pass. The one remaining effect synchronises `documentElement.dir`
+  and `.lang` — a DOM side effect, which is what effects are for.
+
+The three `no-explicit-any` errors are typed. `api/automation` gained a `ReportAutomationRow`
+interface for its payload; the two Excel writers now build the sheet with `aoa_to_sheet` +
+`sheet_add_json`, because that is the variant whose option type actually carries `origin`
+(`json_to_sheet` is `sheet_add_json(null, …)` at runtime). The rewrite was checked byte-for-byte
+against the previous construction — identical workbook bytes and identical CSV — because a silently
+shifted payroll spreadsheet would be worse than the lint error.
 
 ---
 
@@ -827,10 +848,12 @@ a missing row would be the very thing that hides a problem. States:
 - **Not ingested** — the terminal sent it, the app discards it. This is the state that used to be
   invisible, and it is why `OPERLOG` and `ATTPHOTO` now appear instead of being absent.
 - **Never received** — nothing has arrived for that table yet.
-- **Stored (derived)** — shown only before the migration is applied: no receipt counters exist, so
-  the numbers are inferred from the rows already stored (`ATTLOG` from `attendance_logs`,
-  `USERINFO` from `device_users`, `FINGERPRINT` from `biometric_templates`). A derived row cannot
-  show a discarded table, because a discarded table stores nothing — hence the separate status.
+- **Stored (derived)** — shown for any table that has no receipt counter yet, which is every
+  table before the migration and, after it, every table the terminal has not pushed since. The
+  numbers are inferred from the rows already stored (`ATTLOG` from `attendance_logs`, `USERINFO`
+  from `device_users`, `FINGERPRINT` from `biometric_templates`), and a counter, once one exists,
+  always wins over the inference. A derived row cannot show a discarded table, because a discarded
+  table stores nothing — hence the separate status.
 
 ### What this does not fix
 
@@ -848,3 +871,35 @@ a backfill is possible for anything the terminal still holds — run it **before
 If the statistics write fails — most likely because the migration has not been applied — the
 ingest route logs once and carries on. A device must never receive an error from ingestion
 because of a bookkeeping failure, or it would resend its entire batch.
+
+---
+
+## 18. Migration audit — what the live project actually has
+
+Probed on 2026-09-28 with the service-role key, read-only, using PostgREST: a `select` against a
+missing table answers `PGRST205`, and a `select` of a missing column answers `42703`. No SQL was
+executed, and **no credential that can run DDL exists on this machine** — there is no Supabase
+access token (`~/.supabase` holds only telemetry), no database password or connection string in any
+local `.env`, and the sibling apps in `D:\Apps` point at *different* Supabase projects. Applying
+these migrations needs either the SQL editor, the project's database password, or a personal access
+token.
+
+| Migration | Object | State |
+|---|---|---|
+| `phase2_provisioning` | `device_users`, `biometric_templates`, `device_settings`, `device_commands.device_seq` | ❌ missing |
+| `phase3_leave_exceptions` | `leave_types`, `leave_requests`, `leave_balances`, `punch_change_requests`, `exceptions` | ❌ missing |
+| `phase4_roles_audit` | `profiles`, `audit_log` | ❌ missing |
+| `phase5_reporting` | `report_automations`, `report_automation_logs` | ⚠️ tables exist, but `report_type` and `cadence` are missing |
+| `phase7_self_service` | `profiles.employee_pin`, `punch_change_requests.source`/`.note` | ❌ missing |
+| `device_ingest_stats` | `device_ingest_stats` | ❌ missing |
+| `attendance_engine` | `attendance_policies`, `shift_periods`, `employee_shift_assignments`, `holidays`, `attendance_days` | ❌ missing |
+
+So the database is essentially at `database_schema.sql` plus the two `report_automations` tables.
+The app degrades rather than breaking — which is exactly why this went unnoticed — but the
+consequences are visible in the running app: `GET /api/exceptions` and `GET /api/attendance/approvals`
+both answer **500**, the device data panel falls back to its derived mode, `/dashboard/me` reports
+"your login is not linked yet" because `profiles.employee_pin` has nowhere to live, and every user
+resolves to the fallback role.
+
+Order matters when these are run: `device_ingest_stats.sql` calls `can_write()`, which
+`phase4_roles_audit.sql` creates.

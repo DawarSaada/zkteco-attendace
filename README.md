@@ -21,7 +21,7 @@ authoritative for payroll hours.
 
 | Document | What it covers |
 |---|---|
-| [`PRODUCTION_READINESS.md`](./PRODUCTION_READINESS.md) | Security assessment, blockers B1–B8 and their remediation, deploy checklist, UI overhaul log, Phase 1 engine (§13), Phases 2–5 (§14), Phase 7 (§15), known lint debt (§16), device data visibility (§17) |
+| [`PRODUCTION_READINESS.md`](./PRODUCTION_READINESS.md) | Security assessment, blockers B1–B8 and their remediation, deploy checklist, UI overhaul log, Phase 1 engine (§13), Phases 2–5 (§14), Phase 7 (§15), quality gates and CI (§16), device data visibility (§17), migration audit (§18) |
 | [`BIOTIME_PARITY.md`](./BIOTIME_PARITY.md) | BioTime feature comparison, the phased plan and its status table (§4.1) |
 | [`database_schema.sql`](./database_schema.sql) | Base schema — **safe to re-run**, and locked down by default |
 | [`secure_rls.sql`](./secure_rls.sql) | RLS lock-down for databases created by an older schema. Run after any deploy that predates §12 |
@@ -84,5 +84,21 @@ built-in test runner — no extra dependency.
    their PIN.
 5. Commission each terminal with `https://<domain>/iclock?token=<ADMS_SECRET_TOKEN>`.
 
+Migrations are **not** applied yet, per the audit in `PRODUCTION_READINESS.md` §18 — the database
+currently holds only `database_schema.sql` plus the two `report_automations` tables, so approvals,
+exceptions, roles and self-service all fall back to their degraded paths until the list above is run.
+
+## Checks
+
+`.github/workflows/ci.yml` runs on every pull request and every push to `main`, gating on three
+commands from `frontend/`:
+
+```bash
+npx tsc --noEmit   # typecheck
+npm run lint       # eslint, currently 0 problems — see PRODUCTION_READINESS.md §16
+npm test           # node --test over lib/**/*.test.ts
+```
+
 See section 12 of `PRODUCTION_READINESS.md` for the security checklist, §13 for the
-attendance-engine steps, §14–§15 for the later phases, and §16 for the known lint debt.
+attendance-engine steps, §14–§15 for the later phases, §16 for the quality gates, and §18 for the
+migration audit.
