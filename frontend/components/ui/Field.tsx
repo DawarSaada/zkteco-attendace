@@ -80,8 +80,14 @@ export function Field({
   );
 }
 
+/**
+ * `min-w-0` matters on small screens: a `<select>` (and an `<input>`) has an
+ * intrinsic width — for a select, the widest option — and without it the control
+ * refuses to shrink, which widens its grid or flex track and pushes the whole
+ * page into horizontal scroll.
+ */
 export const controlClass =
-  'w-full rounded-xl border border-line bg-surface-2/70 px-3 text-sm text-ink shadow-[inset_0_1px_0_0_var(--surface-sheen)] transition-[background-color,border-color,box-shadow] duration-200 outline-none placeholder:text-ink-subtle hover:border-line-strong focus:border-brand focus:bg-surface focus:ring-4 focus:ring-brand-soft disabled:cursor-not-allowed disabled:opacity-60';
+  'w-full min-w-0 rounded-xl border border-line bg-surface-2/70 px-3 text-sm text-ink shadow-[inset_0_1px_0_0_var(--surface-sheen)] transition-[background-color,border-color,box-shadow] duration-200 outline-none placeholder:text-ink-subtle hover:border-line-strong focus:border-brand focus:bg-surface focus:ring-4 focus:ring-brand-soft disabled:cursor-not-allowed disabled:opacity-60';
 
 export function Input({
   className,

@@ -38,7 +38,9 @@ export function SegmentedControl<T extends string>({
       role="group"
       aria-label={ariaLabel}
       className={cn(
-        'inline-flex items-center gap-0.5 rounded-xl border border-line bg-surface-2/70 p-1 backdrop-blur',
+        // Wraps rather than overflowing: the option labels are nowrap, so on a
+        // narrow screen a single row would push the page into horizontal scroll.
+        'inline-flex max-w-full flex-wrap items-center gap-0.5 rounded-xl border border-line bg-surface-2/70 p-1 backdrop-blur',
         className,
       )}
     >

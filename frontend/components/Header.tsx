@@ -30,7 +30,9 @@ export function Header() {
           aria-label={t('open_menu')}
           aria-expanded={mobileOpen}
           aria-controls="dashboard-nav-drawer"
-          className="grid h-9 w-9 cursor-pointer place-items-center rounded-xl border border-line bg-surface-2/70 text-ink-muted transition-colors hover:border-line-strong hover:text-ink lg:hidden"
+          // `shrink-0` keeps the tap target square: without it the header's
+          // flex row squeezes this button on narrow phones.
+          className="grid h-9 w-9 shrink-0 cursor-pointer place-items-center rounded-xl border border-line bg-surface-2/70 text-ink-muted transition-colors hover:border-line-strong hover:text-ink lg:hidden"
         >
           <Menu size={17} />
         </button>

@@ -306,9 +306,12 @@ export default function LeavePage() {
         <MetricTile label={t('leave_metric_holidays')} value={holidays.length} icon={CalendarPlus} tone="brand" />
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      {/* `[&>*]:min-w-0` so a card holding a wide table cannot widen the whole
+          grid track — without it the table's min-width sets the column width and
+          the page scrolls sideways instead of the table scrolling on its own. */}
+      <div className="grid gap-6 [&>*]:min-w-0 lg:grid-cols-3">
         {/* New request */}
-        <Card className="h-fit">
+        <Card className="h-fit min-w-0">
           <CardHeader title={t('leave_new_title')} icon={Plane} />
           <form onSubmit={createRequest} className="space-y-4 p-5">
             <Field label={t('leave_field_employee')} required>
@@ -459,7 +462,7 @@ export default function LeavePage() {
         </Card>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 lg:grid-cols-2 [&>*]:min-w-0">
         {/* Holidays */}
         <Card>
           <CardHeader title={t('holidays_title')} description={t('holidays_desc')} icon={CalendarPlus} />

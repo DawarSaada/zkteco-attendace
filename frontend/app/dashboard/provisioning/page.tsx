@@ -348,7 +348,7 @@ export default function ProvisioningPage() {
       {data && (
         <div className="grid gap-6 lg:grid-cols-3">
           {/* Diff */}
-          <Card className="lg:col-span-2">
+          <Card className="min-w-0 lg:col-span-2">
             <CardHeader
               title={t('prov_diff_title')}
               description={t('prov_diff_desc')}
@@ -371,7 +371,7 @@ export default function ProvisioningPage() {
               }
             />
 
-            <div className="flex gap-2 border-b border-line px-5 py-3">
+            <div className="flex flex-wrap gap-2 border-b border-line px-5 py-3">
               {(
                 [
                   ['missing', t('prov_tab_missing'), data.summary.missingOnDevice],
