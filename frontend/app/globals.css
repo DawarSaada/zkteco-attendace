@@ -2,32 +2,254 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-@theme {
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+/* ==================================================================== *
+ *  DESIGN TOKENS
+ *
+ *  One token set drives both themes: near-black layered elevation in
+ *  dark, crisp tinted-white in light. Accents come from a single
+ *  indigo → violet → cyan "aurora" ramp used for gradients, glows and
+ *  focus rings.
+ * ==================================================================== */
 
 :root {
-  --background: #f8fafc;
-  --foreground: #0f172a;
+  color-scheme: light;
+
+  --canvas: #f6f7fc;
+  --canvas-glow-1: rgba(79, 70, 229, 0.1);
+  --canvas-glow-2: rgba(6, 182, 212, 0.09);
+  --grid-line: rgba(15, 23, 42, 0.045);
+
+  --surface: #ffffff;
+  --surface-2: #f4f6fc;
+  --surface-3: #e8ecf7;
+  --surface-sheen: rgba(255, 255, 255, 0.9);
+  --shimmer: rgba(15, 23, 42, 0.07);
+
+  --line: rgba(15, 23, 42, 0.08);
+  --line-strong: rgba(15, 23, 42, 0.16);
+
+  --ink: #0a1020;
+  --ink-muted: #576482;
+  --ink-subtle: #8b98b4;
+
+  --accent-1: #4f46e5;
+  --accent-2: #7c3aed;
+  --accent-3: #0891b2;
+
+  --brand: #4f46e5;
+  --brand-hover: #4338ca;
+  --brand-soft: #eef0ff;
+  --brand-line: rgba(79, 70, 229, 0.22);
+  --brand-ink: #ffffff;
+
+  --success: #047857;
+  --success-soft: #e7faf2;
+  --success-line: rgba(5, 150, 105, 0.2);
+
+  --danger: #be123c;
+  --danger-soft: #fff0f4;
+  --danger-line: rgba(225, 29, 72, 0.2);
+
+  --warning: #b45309;
+  --warning-soft: #fff7e6;
+  --warning-line: rgba(217, 119, 6, 0.22);
+
+  --info: #4338ca;
+  --info-soft: #eef1ff;
+  --info-line: rgba(67, 56, 202, 0.2);
+
+  --accent: #7c3aed;
+  --accent-soft: #f5f1ff;
+  --accent-line: rgba(124, 58, 237, 0.2);
+
+  --ring: rgba(79, 70, 229, 0.4);
+  --overlay: rgba(10, 16, 32, 0.42);
+
+  --radius: 0.875rem;
+  --shadow-card: 0 1px 2px rgba(10, 16, 32, 0.04),
+    0 2px 8px -4px rgba(10, 16, 32, 0.06);
+  --shadow-lift: 0 18px 36px -22px rgba(10, 16, 32, 0.28),
+    0 4px 12px -6px rgba(10, 16, 32, 0.1);
+  --shadow-pop: 0 40px 80px -32px rgba(10, 16, 32, 0.4),
+    0 12px 28px -16px rgba(10, 16, 32, 0.22);
+  --glow: 0 12px 32px -12px rgba(79, 70, 229, 0.5);
 }
 
 .dark {
-  --background: #090d16;
-  --foreground: #f8fafc;
+  color-scheme: dark;
+
+  --canvas: #05070e;
+  --canvas-glow-1: rgba(79, 70, 229, 0.22);
+  --canvas-glow-2: rgba(6, 182, 212, 0.12);
+  --grid-line: rgba(148, 163, 184, 0.05);
+
+  --surface: #0b101c;
+  --surface-2: #121a2b;
+  --surface-3: #1b2438;
+  --surface-sheen: rgba(255, 255, 255, 0.07);
+  --shimmer: rgba(255, 255, 255, 0.06);
+
+  --line: rgba(148, 163, 184, 0.12);
+  --line-strong: rgba(148, 163, 184, 0.24);
+
+  --ink: #eef2fb;
+  --ink-muted: #94a3c0;
+  --ink-subtle: #5f6d88;
+
+  --accent-1: #6366f1;
+  --accent-2: #8b5cf6;
+  --accent-3: #22d3ee;
+
+  --brand: #818cf8;
+  --brand-hover: #a5b4fc;
+  --brand-soft: rgba(99, 102, 241, 0.16);
+  --brand-line: rgba(129, 140, 248, 0.3);
+  --brand-ink: #ffffff;
+
+  --success: #34d399;
+  --success-soft: rgba(6, 78, 59, 0.26);
+  --success-line: rgba(52, 211, 153, 0.28);
+
+  --danger: #fb7185;
+  --danger-soft: rgba(88, 8, 28, 0.32);
+  --danger-line: rgba(251, 113, 133, 0.28);
+
+  --warning: #fbbf24;
+  --warning-soft: rgba(69, 40, 3, 0.3);
+  --warning-line: rgba(251, 191, 36, 0.26);
+
+  --info: #a5b4fc;
+  --info-soft: rgba(49, 46, 129, 0.28);
+  --info-line: rgba(165, 180, 252, 0.26);
+
+  --accent: #c4b5fd;
+  --accent-soft: rgba(76, 29, 149, 0.24);
+  --accent-line: rgba(196, 181, 253, 0.24);
+
+  --ring: rgba(129, 140, 248, 0.5);
+  --overlay: rgba(2, 4, 10, 0.7);
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.5),
+    0 2px 10px -6px rgba(0, 0, 0, 0.6);
+  --shadow-lift: 0 22px 44px -24px rgba(0, 0, 0, 0.8),
+    0 6px 16px -8px rgba(0, 0, 0, 0.6);
+  --shadow-pop: 0 48px 96px -40px rgba(0, 0, 0, 0.9),
+    0 16px 40px -20px rgba(0, 0, 0, 0.7);
+  --glow: 0 14px 40px -14px rgba(99, 102, 241, 0.6);
 }
 
-body {
-  background-color: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
-  transition: background-color 0.2s ease, color 0.2s ease;
+@theme inline {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SFMono-Regular", monospace;
+
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-subtle: var(--ink-subtle);
+
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-line: var(--brand-line);
+  --color-brand-ink: var(--brand-ink);
+
+  --color-aurora-1: var(--accent-1);
+  --color-aurora-2: var(--accent-2);
+  --color-aurora-3: var(--accent-3);
+
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-success-line: var(--success-line);
+
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-line: var(--danger-line);
+
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-line: var(--warning-line);
+
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-info-line: var(--info-line);
+
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-line: var(--accent-line);
+
+  --shadow-card: var(--shadow-card);
+  --shadow-lift: var(--shadow-lift);
+  --shadow-pop: var(--shadow-pop);
 }
 
-/* Modern custom scrollbar */
+/* ==================================================================== *
+ *  BASE
+ * ==================================================================== */
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    border-color: var(--line);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--canvas);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    transition: background-color 0.3s ease, color 0.3s ease;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    letter-spacing: -0.02em;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: 0.6rem;
+  }
+
+  ::selection {
+    background-color: color-mix(in oklab, var(--accent-1) 85%, transparent);
+    color: #fff;
+  }
+
+  [data-numeric] {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* ==================================================================== *
+ *  SCROLLBARS
+ * ==================================================================== */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--ink-subtle) 45%, transparent)
+    transparent;
+}
+
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 9px;
+  height: 9px;
 }
 
 ::-webkit-scrollbar-track {
@@ -35,18 +257,482 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.4);
+  background: color-mix(in oklab, var(--ink-subtle) 40%, transparent);
+  border: 2px solid transparent;
+  background-clip: content-box;
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.7);
+  background: color-mix(in oklab, var(--ink-subtle) 70%, transparent);
+  background-clip: content-box;
 }
 
-.dark ::-webkit-scrollbar-thumb {
-  background: rgba(71, 85, 105, 0.5);
+/* ==================================================================== *
+ *  SURFACES & DEPTH
+ * ==================================================================== */
+
+/* Hairline highlight along the top edge of a raised surface. */
+@utility sheen-top {
+  position: relative;
+  &::before {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      var(--surface-sheen),
+      transparent
+    );
+    pointer-events: none;
+    z-index: 1;
+  }
 }
 
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: rgba(71, 85, 105, 0.8);
+/* Subtle top-down tint so cards do not read as flat rectangles. */
+@utility card-face {
+  background-image: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--surface-2) 60%, var(--surface)),
+    var(--surface) 60%
+  );
+}
+
+/* Page background: two soft aurora pools plus a masked grid. */
+@utility app-canvas {
+  background-color: var(--canvas);
+  background-image: radial-gradient(
+      1100px 620px at 8% -12%,
+      var(--canvas-glow-1),
+      transparent 62%
+    ),
+    radial-gradient(
+      900px 560px at 96% 2%,
+      var(--canvas-glow-2),
+      transparent 64%
+    );
+  background-attachment: fixed;
+}
+
+@utility grid-overlay {
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image: linear-gradient(
+        to right,
+        var(--grid-line) 1px,
+        transparent 1px
+      ),
+      linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+    background-size: 58px 58px;
+    mask-image: radial-gradient(
+      ellipse 85% 65% at 50% 0%,
+      #000 15%,
+      transparent 78%
+    );
+  }
+}
+
+/* ==================================================================== *
+ *  AURORA ACCENT
+ * ==================================================================== */
+
+@utility aurora-bg {
+  background-image: linear-gradient(
+    135deg,
+    var(--accent-1),
+    var(--accent-2) 52%,
+    var(--accent-3)
+  );
+}
+
+@utility aurora-text {
+  background-image: linear-gradient(
+    100deg,
+    var(--accent-1),
+    var(--accent-2) 48%,
+    var(--accent-3)
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+@utility aurora-ring {
+  position: relative;
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(
+      135deg,
+      color-mix(in oklab, var(--accent-1) 70%, transparent),
+      color-mix(in oklab, var(--accent-2) 45%, transparent) 50%,
+      color-mix(in oklab, var(--accent-3) 65%, transparent)
+    );
+    -webkit-mask: linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+}
+
+@utility glow-brand {
+  box-shadow: var(--glow);
+}
+
+/* Coloured halo that inherits the element's own text colour. */
+@utility glow-current {
+  box-shadow: 0 10px 26px -12px currentColor;
+}
+
+/* ==================================================================== *
+ *  SHIMMER (skeletons)
+ * ==================================================================== */
+
+@keyframes ui-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@utility shimmer {
+  position: relative;
+  overflow: hidden;
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      var(--shimmer),
+      transparent
+    );
+    animation: ui-shimmer 1.8s ease-in-out infinite;
+  }
+}
+
+/* ==================================================================== *
+ *  ANIMATION UTILITIES
+ *
+ *  The markup was written against `tw-animate-css` class names, but no
+ *  animation stylesheet was ever installed — every `animate-in`,
+ *  `fade-in`, `zoom-in-95` and `slide-in-from-*` was a silent no-op.
+ *  They are implemented natively here, reading Tailwind's own
+ *  `--tw-duration` / `--tw-ease` so `duration-*` drives them.
+ * ==================================================================== */
+
+@keyframes ui-enter-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes ui-exit-fade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes ui-enter-zoom {
+  from {
+    opacity: 0;
+    transform: scale(var(--ui-zoom-from, 0.96));
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes ui-exit-zoom {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(var(--ui-zoom-from, 0.96));
+  }
+}
+
+@keyframes ui-enter-left {
+  from {
+    opacity: 0;
+    transform: translate3d(calc(-1 * var(--ui-slide, 1.25rem)), 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes ui-enter-right {
+  from {
+    opacity: 0;
+    transform: translate3d(var(--ui-slide, 1.25rem), 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes ui-enter-top {
+  from {
+    opacity: 0;
+    transform: translate3d(0, calc(-1 * var(--ui-slide, 1.25rem)), 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes ui-enter-bottom {
+  from {
+    opacity: 0;
+    transform: translate3d(0, var(--ui-slide, 1.25rem), 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes ui-enter-sheet {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 100%, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes ui-bar-rise {
+  from {
+    opacity: 0.3;
+    transform: scaleY(0.04);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+
+@keyframes ui-toast-bar {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+@keyframes ui-orbit {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(2%, -3%, 0) scale(1.06);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@utility animate-in {
+  animation-duration: var(--tw-duration, 240ms);
+  animation-timing-function: var(--tw-ease, cubic-bezier(0.16, 1, 0.3, 1));
+  animation-fill-mode: both;
+}
+
+@utility animate-out {
+  animation-duration: var(--tw-duration, 160ms);
+  animation-timing-function: var(--tw-ease, cubic-bezier(0.4, 0, 1, 1));
+  animation-fill-mode: both;
+  pointer-events: none;
+}
+
+@utility fade-in {
+  animation-name: ui-enter-fade;
+  animation-duration: var(--tw-duration, 240ms);
+  animation-timing-function: var(--tw-ease, cubic-bezier(0.16, 1, 0.3, 1));
+  animation-fill-mode: both;
+}
+
+@utility fade-out {
+  animation-name: ui-exit-fade;
+  animation-duration: var(--tw-duration, 160ms);
+  animation-timing-function: var(--tw-ease, cubic-bezier(0.4, 0, 1, 1));
+  animation-fill-mode: both;
+  pointer-events: none;
+}
+
+@utility zoom-in {
+  --ui-zoom-from: 0.96;
+  animation-name: ui-enter-zoom;
+  animation-duration: var(--tw-duration, 240ms);
+  animation-timing-function: var(--tw-ease, cubic-bezier(0.16, 1, 0.3, 1));
+  animation-fill-mode: both;
+}
+
+@utility zoom-in-90 {
+  --ui-zoom-from: 0.9;
+  animation-name: ui-enter-zoom;
+  animation-duration: var(--tw-duration, 240ms);
+  animation-timing-function: var(--tw-ease, cubic-bezier(0.16, 1, 0.3, 1));
+  animation-fill-mode: both;
+}
+
+@utility zoom-in-95 {
+  --ui-zoom-from: 0.95;
+  animation-name: ui-enter-zoom;
+  animation-duration: var(--tw-duration, 240ms);
+  animation-timing-function: var(--tw-ease, cubic-bezier(0.16, 1, 0.3, 1));
+  animation-fill-mode: both;
+}
+
+@utility zoom-out {
+  --ui-zoom-from: 0.96;
+  animation-name: ui-exit-zoom;
+  animation-duration: var(--tw-duration, 160ms);
+  animation-timing-function: var(--tw-ease, cubic-bezier(0.4, 0, 1, 1));
+  animation-fill-mode: both;
+  pointer-events: none;
+}
+
+@utility zoom-out-95 {
+  --ui-zoom-from: 0.95;
+  animation-name: ui-exit-zoom;
+  animation-duration: var(--tw-duration, 160ms);
+  animation-timing-function: var(--tw-ease, cubic-bezier(0.4, 0, 1, 1));
+  animation-fill-mode: both;
+  pointer-events: none;
+}
+
+@utility slide-in-from-left {
+  --ui-slide: 1.25rem;
+  animation-name: ui-enter-left;
+  animation-duration: var(--tw-duration, 240ms);
+  animation-timing-function: var(--tw-ease, cubic-bezier(0.16, 1, 0.3, 1));
+  animation-fill-mode: both;
+}
+
+@utility slide-in-from-right {
+  --ui-slide: 1.25rem;
+  animation-name: ui-enter-right;
+  animation-duration: var(--tw-duration, 240ms);
+  animation-timing-function: var(--tw-ease, cubic-bezier(0.16, 1, 0.3, 1));
+  animation-fill-mode: both;
+}
+
+@utility slide-in-from-top {
+  --ui-slide: 1.25rem;
+  animation-name: ui-enter-top;
+  animation-duration: var(--tw-duration, 240ms);
+  animation-timing-function: var(--tw-ease, cubic-bezier(0.16, 1, 0.3, 1));
+  animation-fill-mode: both;
+}
+
+@utility slide-in-from-bottom {
+  --ui-slide: 1.25rem;
+  animation-name: ui-enter-bottom;
+  animation-duration: var(--tw-duration, 240ms);
+  animation-timing-function: var(--tw-ease, cubic-bezier(0.16, 1, 0.3, 1));
+  animation-fill-mode: both;
+}
+
+@utility slide-in-from-bottom-8 {
+  --ui-slide: 2rem;
+  animation-name: ui-enter-bottom;
+  animation-duration: var(--tw-duration, 240ms);
+  animation-timing-function: var(--tw-ease, cubic-bezier(0.16, 1, 0.3, 1));
+  animation-fill-mode: both;
+}
+
+@utility sheet-in {
+  animation-name: ui-enter-sheet;
+  animation-duration: var(--tw-duration, 300ms);
+  animation-timing-function: var(--tw-ease, cubic-bezier(0.16, 1, 0.3, 1));
+  animation-fill-mode: both;
+}
+
+/* Staggered reveal — set `--ui-i` on each child. */
+@utility stagger-in {
+  --ui-slide: 0.75rem;
+  animation-name: ui-enter-bottom;
+  animation-duration: 460ms;
+  animation-delay: calc(var(--ui-i, 0) * 45ms);
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  animation-fill-mode: both;
+}
+
+/* Chart bars growing from the baseline. */
+@utility bar-rise {
+  transform-origin: bottom;
+  animation-name: ui-bar-rise;
+  animation-duration: 620ms;
+  animation-delay: calc(var(--ui-i, 0) * 45ms);
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  animation-fill-mode: both;
+}
+
+@utility toast-progress {
+  animation-name: ui-toast-bar;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+/* Slow drifting aurora blobs in the page background. */
+@utility orb-drift {
+  animation: ui-orbit 18s ease-in-out infinite;
+}
+
+@utility orb-drift-slow {
+  animation: ui-orbit 26s ease-in-out infinite reverse;
+}
+
+/* ==================================================================== *
+ *  REDUCED MOTION
+ * ==================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
 }

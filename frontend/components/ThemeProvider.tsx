@@ -1,67 +1,68 @@
 'use client';
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useSyncExternalStore } from 'react';
 
-type Theme = 'light' | 'dark';
+export type Theme = 'light' | 'dark';
 
 interface ThemeContextType {
-    theme: Theme;
-    toggleTheme: () => void;
-    setTheme: (theme: Theme) => void;
+  theme: Theme;
+  toggleTheme: () => void;
+  setTheme: (theme: Theme) => void;
 }
 
 const ThemeContext = createContext<ThemeContextType>({
-    theme: 'light',
-    toggleTheme: () => {},
-    setTheme: () => {},
+  theme: 'light',
+  toggleTheme: () => {},
+  setTheme: () => {},
 });
 
+const STORAGE_KEY = 'zk_theme';
+
+/**
+ * The `<html class="dark">` class is the single source of truth — it is already
+ * applied by the pre-paint script in the root layout. Reading it through
+ * `useSyncExternalStore` keeps React in sync without a state-setting effect
+ * (which caused a cascading render on every mount).
+ */
+function subscribe(onChange: () => void) {
+  const observer = new MutationObserver(onChange);
+  observer.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['class'],
+  });
+  return () => observer.disconnect();
+}
+
+function getSnapshot(): Theme {
+  return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+}
+
+function getServerSnapshot(): Theme {
+  return 'light';
+}
+
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-    const [theme, setThemeState] = useState<Theme>('light');
-    const [mounted, setMounted] = useState(false);
+  const theme = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
-    useEffect(() => {
-        setMounted(true);
-        const storedTheme = localStorage.getItem('zk_theme') as Theme | null;
-        if (storedTheme) {
-            setThemeState(storedTheme);
-            if (storedTheme === 'dark') {
-                document.documentElement.classList.add('dark');
-            } else {
-                document.documentElement.classList.remove('dark');
-            }
-        } else {
-            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-            const initialTheme = prefersDark ? 'dark' : 'light';
-            setThemeState(initialTheme);
-            if (initialTheme === 'dark') {
-                document.documentElement.classList.add('dark');
-            } else {
-                document.documentElement.classList.remove('dark');
-            }
-        }
-    }, []);
+  const setTheme = useCallback((next: Theme) => {
+    document.documentElement.classList.toggle('dark', next === 'dark');
+    try {
+      window.localStorage.setItem(STORAGE_KEY, next);
+    } catch {
+      // Storage can be unavailable in private browsing; the class still applies.
+    }
+  }, []);
 
-    const setTheme = (newTheme: Theme) => {
-        setThemeState(newTheme);
-        localStorage.setItem('zk_theme', newTheme);
-        if (newTheme === 'dark') {
-            document.documentElement.classList.add('dark');
-        } else {
-            document.documentElement.classList.remove('dark');
-        }
-    };
+  const toggleTheme = useCallback(() => {
+    setTheme(getSnapshot() === 'dark' ? 'light' : 'dark');
+  }, [setTheme]);
 
-    const toggleTheme = () => {
-        setTheme(theme === 'dark' ? 'light' : 'dark');
-    };
-
-    return (
-        <ThemeContext.Provider value={{ theme, toggleTheme, setTheme }}>
-            {children}
-        </ThemeContext.Provider>
-    );
+  return (
+    <ThemeContext.Provider value={{ theme, toggleTheme, setTheme }}>
+      {children}
+    </ThemeContext.Provider>
+  );
 }
 
 export function useTheme() {
-    return useContext(ThemeContext);
+  return useContext(ThemeContext);
 }

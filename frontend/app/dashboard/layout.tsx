@@ -1,17 +1,32 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { getProfile } from '@/lib/auth/roles';
 import { Sidebar } from '@/components/Sidebar';
 import { Header } from '@/components/Header';
 import { NavProvider } from '@/components/NavContext';
+import { Backdrop } from '@/components/ui/Backdrop';
+import { SkipLink } from '@/components/SkipLink';
 import { logout } from '@/app/login/actions';
 
-export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
+const MAIN_ID = 'dashboard-main';
+
+export default async function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   if (!user) {
     redirect('/login');
   }
+
+  // The nav is rendered per role so a viewer is not shown screens that will
+  // answer 403. The server-side checks remain the source of truth.
+  const profile = await getProfile(supabase, user);
 
   async function handleLogout() {
     'use server';
@@ -20,14 +35,19 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <NavProvider>
-      <div className="min-h-screen flex bg-slate-50 dark:bg-[#090d16] text-slate-900 dark:text-slate-100 transition-colors duration-200">
-        {/* 1. Sidebar Navigation (Desktop fixed + Mobile slide-out drawer) */}
-        <Sidebar userEmail={user.email} onLogout={handleLogout} />
+      <Backdrop />
+      <SkipLink targetId={MAIN_ID} />
+      <div className="text-ink relative flex min-h-screen">
+        {/* Desktop sidebar / mobile off-canvas drawer */}
+        <Sidebar userEmail={user.email} role={profile.role} onLogout={handleLogout} />
 
-        {/* 2. Main Viewport Area */}
-        <div className="flex-1 flex flex-col min-w-0 min-h-screen overflow-x-hidden">
+        <div className="flex min-h-screen min-w-0 flex-1 flex-col">
           <Header />
-          <main className="flex-1 p-4 sm:p-6 md:p-8 max-w-7xl w-full mx-auto space-y-6">
+          <main
+            id={MAIN_ID}
+            tabIndex={-1}
+            className="animate-in fade-in mx-auto w-full max-w-[84rem] flex-1 space-y-6 p-4 outline-none duration-300 sm:p-6 md:p-8"
+          >
             {children}
           </main>
         </div>

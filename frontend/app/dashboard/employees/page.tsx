@@ -1,561 +1,571 @@
 'use client';
-import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Employee } from '@/types';
-import { SortHeader } from '@/components/SortHeader';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Building2, Edit, Layers, Plus, Search, Trash2, Users } from 'lucide-react';
 import { useLanguage } from '@/components/LanguageContext';
-import { 
-    Users, 
-    Plus, 
-    Search, 
-    Edit, 
-    Trash2,
-    Building2, 
-    X,
-    AlertTriangle
-} from 'lucide-react';
+import { Avatar } from '@/components/ui/Avatar';
+import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
+import { Card } from '@/components/ui/Card';
+import { ConfirmDialog, Modal } from '@/components/ui/Modal';
+import { Field, Input, Select } from '@/components/ui/Field';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { TableSkeleton } from '@/components/ui/Skeleton';
+import { MetricTile } from '@/components/ui/StatCard';
+import { SortHeader } from '@/components/SortHeader';
+import {
+  Table,
+  TableCard,
+  TableMessageRow,
+  TableScroll,
+  TBody,
+  Td,
+  Th,
+  THead,
+  Tr,
+} from '@/components/ui/Table';
+import { useToast } from '@/components/ui/Toast';
+import type { Employee } from '@/types';
+import type { CSSProperties } from 'react';
+
+interface EmployeeForm {
+  pin: string;
+  full_name: string;
+  department: string;
+  branch: string;
+  designation: string;
+}
+
+const EMPTY_FORM: EmployeeForm = {
+  pin: '',
+  full_name: '',
+  department: '',
+  branch: '',
+  designation: '',
+};
+
+function compareEmployees(a: Employee, b: Employee, key: string): number {
+  switch (key) {
+    case 'pin':
+      return (Number(a.pin) || 0) - (Number(b.pin) || 0);
+    case 'full_name':
+      return (a.full_name || '').localeCompare(b.full_name || '');
+    case 'department':
+      return (a.department || '').localeCompare(b.department || '');
+    case 'branch':
+      return (a.branch || '').localeCompare(b.branch || '');
+    case 'designation':
+      return (a.designation || '').localeCompare(b.designation || '');
+    default:
+      return 0;
+  }
+}
 
 export default function EmployeesPage() {
-    const [employees, setEmployees] = useState<Employee[]>([]);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [branchFilter, setBranchFilter] = useState('all');
-    const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [branchFilter, setBranchFilter] = useState('all');
+  const [sortKey, setSortKey] = useState<string>('pin');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
-    // Sorting State
-    const [sortKey, setSortKey] = useState<string>('pin');
-    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+  const [form, setForm] = useState<EmployeeForm>(EMPTY_FORM);
+  const [isSaving, setIsSaving] = useState(false);
 
-    // Modal state for Add/Edit
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
-    const [pin, setPin] = useState('');
-    const [fullName, setFullName] = useState('');
-    const [department, setDepartment] = useState('');
-    const [branch, setBranch] = useState('');
-    const [designation, setDesignation] = useState('');
-    const [isSaving, setIsSaving] = useState(false);
+  const [deletingEmployee, setDeletingEmployee] = useState<Employee | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
-    // Deletion confirmation state
-    const [deletingEmployee, setDeletingEmployee] = useState<Employee | null>(null);
-    const [isDeleting, setIsDeleting] = useState(false);
+  const { t } = useLanguage();
+  const toast = useToast();
 
-    const { t, isRTL } = useLanguage();
+  const fetchEmployees = useCallback(async () => {
+    try {
+      const res = await fetch('/api/employees');
+      if (res.ok) {
+        const data = await res.json();
+        setEmployees(Array.isArray(data) ? data : []);
+      } else {
+        toast.error(t('emp_fetch_failed'));
+        setEmployees([]);
+      }
+    } catch {
+      toast.error(t('emp_fetch_failed'));
+      setEmployees([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [t, toast]);
 
-    const showToast = (text: string, type: 'success' | 'error' = 'success') => {
-        setToastMsg({ text, type });
-        setTimeout(() => setToastMsg(null), 4000);
-    };
+  useEffect(() => {
+    void fetchEmployees();
+  }, [fetchEmployees]);
 
-    const fetchEmployees = useCallback(async () => {
-        try {
-            const res = await fetch('/api/employees');
-            if (res.ok) {
-                const data = await res.json();
-                setEmployees(Array.isArray(data) ? data : []);
-            } else {
-                showToast('Failed to fetch employees list', 'error');
-                setEmployees([]);
-            }
-        } catch (err: unknown) {
-            showToast(err instanceof Error ? err.message : 'Error fetching employees', 'error');
-            setEmployees([]);
-        }
-    }, []);
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortOrder('asc');
+    }
+  };
 
-    useEffect(() => {
-        fetchEmployees();
-    }, [fetchEmployees]);
+  const openAddModal = () => {
+    setEditingEmployee(null);
+    setForm(EMPTY_FORM);
+    setIsModalOpen(true);
+  };
 
-    const handleSort = (key: string) => {
-        if (sortKey === key) {
-            setSortOrder(prev => (prev === 'asc' ? 'desc' : 'asc'));
-        } else {
-            setSortKey(key);
-            setSortOrder('asc');
-        }
-    };
+  const openEditModal = (employee: Employee) => {
+    setEditingEmployee(employee);
+    setForm({
+      pin: employee.pin,
+      full_name: employee.full_name,
+      department: employee.department || '',
+      branch: employee.branch || '',
+      designation: employee.designation || '',
+    });
+    setIsModalOpen(true);
+  };
 
-    const openAddModal = () => {
-        setEditingEmployee(null);
-        setPin('');
-        setFullName('');
-        setDepartment('');
-        setBranch('');
-        setDesignation('');
-        setIsModalOpen(true);
-    };
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setIsSaving(true);
 
-    const openEditModal = (emp: Employee) => {
-        setEditingEmployee(emp);
-        setPin(emp.pin);
-        setFullName(emp.full_name);
-        setDepartment(emp.department || '');
-        setBranch(emp.branch || '');
-        setDesignation(emp.designation || '');
-        setIsModalOpen(true);
-    };
+    try {
+      const res = await fetch('/api/employees', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pin: form.pin,
+          full_name: form.full_name,
+          department: form.department,
+          branch: form.branch,
+          designation: form.designation,
+        }),
+      });
+      const data = await res.json();
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setIsSaving(true);
-        
-        try {
-            const res = await fetch('/api/employees', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    pin, 
-                    full_name: fullName, 
-                    department, 
-                    branch, 
-                    designation 
-                })
-            });
-            const data = await res.json();
-            
-            if (!res.ok) {
-                showToast(data.error || 'Failed to save employee profile.', 'error');
-            } else {
-                showToast(editingEmployee ? t('success') : t('success'));
-                setIsModalOpen(false);
-                fetchEmployees();
-            }
-        } catch (err: unknown) {
-            showToast(err instanceof Error ? err.message : 'Error saving employee.', 'error');
-        } finally {
-            setIsSaving(false);
-        }
-    };
+      if (!res.ok) {
+        toast.error(data.error || t('emp_save_failed'));
+        return;
+      }
 
-    const handleDeleteEmployee = async () => {
-        if (!deletingEmployee) return;
-        setIsDeleting(true);
+      toast.success(
+        editingEmployee ? t('emp_updated_success') : t('emp_created_success'),
+      );
+      setIsModalOpen(false);
+      await fetchEmployees();
+    } catch {
+      toast.error(t('emp_save_failed'));
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
-        try {
-            const res = await fetch(`/api/employees?pin=${encodeURIComponent(deletingEmployee.pin)}`, {
-                method: 'DELETE'
-            });
-            const data = await res.json();
+  const handleDeleteEmployee = async () => {
+    if (!deletingEmployee) return;
+    setIsDeleting(true);
 
-            if (!res.ok) {
-                showToast(data.error || 'Failed to delete employee.', 'error');
-            } else {
-                showToast(t('emp_deleted_success'));
-                setDeletingEmployee(null);
-                if (isModalOpen && editingEmployee?.pin === deletingEmployee.pin) {
-                    setIsModalOpen(false);
-                }
-                fetchEmployees();
-            }
-        } catch (err: unknown) {
-            showToast(err instanceof Error ? err.message : 'Error deleting employee.', 'error');
-        } finally {
-            setIsDeleting(false);
-        }
-    };
+    try {
+      const res = await fetch(
+        `/api/employees?pin=${encodeURIComponent(deletingEmployee.pin)}`,
+        { method: 'DELETE' },
+      );
+      const data = await res.json();
 
-    const branches = useMemo(() => {
-        const set = new Set(employees.map(e => e.branch).filter(Boolean));
-        return Array.from(set) as string[];
-    }, [employees]);
+      if (!res.ok) {
+        toast.error(data.error || t('emp_delete_failed'));
+        return;
+      }
 
-    const filteredAndSortedEmployees = useMemo(() => {
-        let result = employees.filter(emp => {
-            if (branchFilter !== 'all' && emp.branch !== branchFilter) return false;
-            if (!searchTerm) return true;
-            const term = searchTerm.toLowerCase();
-            return (
-                emp.full_name.toLowerCase().includes(term) ||
-                emp.pin.toLowerCase().includes(term) ||
-                (emp.department && emp.department.toLowerCase().includes(term)) ||
-                (emp.designation && emp.designation.toLowerCase().includes(term))
-            );
-        });
+      toast.success(t('emp_deleted_success'));
+      if (editingEmployee?.pin === deletingEmployee.pin) setIsModalOpen(false);
+      setDeletingEmployee(null);
+      await fetchEmployees();
+    } catch {
+      toast.error(t('emp_delete_failed'));
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
-        result.sort((a, b) => {
-            let valA: any = '';
-            let valB: any = '';
+  const branches = useMemo(() => {
+    const set = new Set(employees.map((employee) => employee.branch).filter(Boolean));
+    return Array.from(set) as string[];
+  }, [employees]);
 
-            switch (sortKey) {
-                case 'pin':
-                    valA = Number(a.pin) || 0;
-                    valB = Number(b.pin) || 0;
-                    return sortOrder === 'asc' ? valA - valB : valB - valA;
-
-                case 'full_name':
-                    valA = a.full_name || '';
-                    valB = b.full_name || '';
-                    return sortOrder === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
-
-                case 'department':
-                    valA = a.department || '';
-                    valB = b.department || '';
-                    return sortOrder === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
-
-                case 'branch':
-                    valA = a.branch || '';
-                    valB = b.branch || '';
-                    return sortOrder === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
-
-                case 'designation':
-                    valA = a.designation || '';
-                    valB = b.designation || '';
-                    return sortOrder === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
-
-                default:
-                    return 0;
-            }
-        });
-
-        return result;
-    }, [employees, branchFilter, searchTerm, sortKey, sortOrder]);
-
-    return (
-        <div className="space-y-6 animate-in fade-in duration-200">
-            {/* Toast Notification */}
-            {toastMsg && (
-                <div className={`p-4 rounded-xl border text-sm font-medium transition-all ${
-                    toastMsg.type === 'success' ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800' : 'bg-red-50 dark:bg-red-950/60 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800'
-                }`}>
-                    {toastMsg.text}
-                </div>
-            )}
-
-            {/* Header Toolbar */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-2 border-b border-slate-200 dark:border-slate-800/60">
-                <div>
-                    <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-                        {t('emp_title')}
-                    </h2>
-                    <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                        {t('emp_subtitle')}
-                    </p>
-                </div>
-
-                <button
-                    type="button"
-                    onClick={openAddModal}
-                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold shadow-sm shadow-blue-500/20 transition-all cursor-pointer w-full sm:w-auto justify-center"
-                >
-                    <Plus size={16} />
-                    <span>{t('btn_add_employee')}</span>
-                </button>
-            </div>
-
-            {/* Filter & Search Bar */}
-            <div className="p-4 rounded-2xl bg-white dark:bg-[#0c121e] border border-slate-200 dark:border-slate-800/80 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-                <div className="relative flex-1">
-                    <Search size={16} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? 'right-3' : 'left-3'}`} />
-                    <input
-                        type="text"
-                        placeholder={t('emp_search_placeholder')}
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className={`w-full py-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all ${
-                            isRTL ? 'pr-9 pl-3' : 'pl-9 pr-3'
-                        }`}
-                    />
-                </div>
-
-                <div className="w-full sm:w-48">
-                    <select
-                        value={branchFilter}
-                        onChange={(e) => setBranchFilter(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 cursor-pointer"
-                    >
-                        <option value="all">{t('filter_all_branches')}</option>
-                        {branches.map(b => (
-                            <option key={b} value={b}>{b}</option>
-                        ))}
-                    </select>
-                </div>
-            </div>
-
-            {/* Employees Table with Interactive Column Sorting */}
-            <div className="rounded-2xl bg-white dark:bg-[#0c121e] border border-slate-200 dark:border-slate-800/80 shadow-xs overflow-hidden transition-colors">
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left rtl:text-right">
-                        <thead className="bg-slate-50/80 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-800/80">
-                            <tr>
-                                <SortHeader 
-                                    columnKey="pin" 
-                                    label={t('col_pin')} 
-                                    activeKey={sortKey} 
-                                    sortOrder={sortOrder} 
-                                    onSort={handleSort} 
-                                />
-                                <SortHeader 
-                                    columnKey="full_name" 
-                                    label={t('col_full_name')} 
-                                    activeKey={sortKey} 
-                                    sortOrder={sortOrder} 
-                                    onSort={handleSort} 
-                                />
-                                <SortHeader 
-                                    columnKey="department" 
-                                    label={t('col_department')} 
-                                    activeKey={sortKey} 
-                                    sortOrder={sortOrder} 
-                                    onSort={handleSort} 
-                                />
-                                <SortHeader 
-                                    columnKey="branch" 
-                                    label={t('col_branch')} 
-                                    activeKey={sortKey} 
-                                    sortOrder={sortOrder} 
-                                    onSort={handleSort} 
-                                />
-                                <SortHeader 
-                                    columnKey="designation" 
-                                    label={t('col_designation')} 
-                                    activeKey={sortKey} 
-                                    sortOrder={sortOrder} 
-                                    onSort={handleSort} 
-                                />
-                                <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right rtl:text-left">
-                                    {t('actions')}
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-sm">
-                            {filteredAndSortedEmployees.map(emp => (
-                                <tr key={emp.pin} className="hover:bg-slate-50/60 dark:hover:bg-slate-900/40 transition-colors">
-                                    <td className="px-6 py-4 font-mono font-bold text-slate-700 dark:text-slate-300">
-                                        {emp.pin}
-                                    </td>
-                                    <td className="px-6 py-4 font-semibold text-slate-900 dark:text-white">
-                                        {emp.full_name}
-                                    </td>
-                                    <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
-                                        {emp.department ? (
-                                            <span className="inline-flex items-center gap-1 text-xs">
-                                                <Building2 size={13} className="text-slate-400" />
-                                                <span>{emp.department}</span>
-                                            </span>
-                                        ) : '-'}
-                                    </td>
-                                    <td className="px-6 py-4 text-blue-600 dark:text-blue-400 font-medium">
-                                        {emp.branch ? (
-                                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800/50">
-                                                {emp.branch}
-                                            </span>
-                                        ) : '-'}
-                                    </td>
-                                    <td className="px-6 py-4 text-slate-600 dark:text-slate-400 text-xs">
-                                        {emp.designation || '-'}
-                                    </td>
-                                    <td className="px-6 py-4 text-right rtl:text-left">
-                                        <div className="inline-flex items-center gap-2 justify-end">
-                                            <button
-                                                type="button"
-                                                onClick={() => openEditModal(emp)}
-                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-950/50 text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 text-xs font-semibold border border-slate-200 dark:border-slate-700/80 transition-colors cursor-pointer"
-                                                title={t('edit')}
-                                            >
-                                                <Edit size={13} />
-                                                <span>{t('edit')}</span>
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => setDeletingEmployee(emp)}
-                                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 text-xs font-semibold border border-slate-200 dark:border-slate-700/80 transition-colors cursor-pointer"
-                                                title={t('btn_delete_employee')}
-                                            >
-                                                <Trash2 size={13} />
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
-                            {filteredAndSortedEmployees.length === 0 && (
-                                <tr>
-                                    <td colSpan={6} className="px-6 py-12 text-center text-slate-400 dark:text-slate-500 text-sm">
-                                        <Users size={32} className="mx-auto mb-2 text-slate-300 dark:text-slate-700" />
-                                        {t('no_employees_found')}
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            {/* Add / Edit Employee Modal */}
-            {isModalOpen && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50 animate-in fade-in duration-150">
-                    <div className="bg-white dark:bg-[#0c121e] rounded-2xl p-4 sm:p-6 max-w-lg w-full shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 sm:space-y-5 max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-150">
-                        <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800/80">
-                            <div>
-                                <h3 className="text-lg font-bold text-slate-900 dark:text-white">
-                                    {editingEmployee ? t('modal_edit_emp') : t('modal_register_emp')}
-                                </h3>
-                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                                    {editingEmployee ? `${t('edit')}: PIN ${editingEmployee.pin}` : t('modal_pin_desc')}
-                                </p>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => setIsModalOpen(false)}
-                                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                            >
-                                <X size={18} />
-                            </button>
-                        </div>
-
-                        <form onSubmit={handleSubmit} className="space-y-4">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                        {t('modal_pin_label')} <span className="text-red-500">*</span>
-                                    </label>
-                                    <input
-                                        type="text"
-                                        required
-                                        value={pin}
-                                        onChange={(e) => setPin(e.target.value)}
-                                        disabled={!!editingEmployee}
-                                        placeholder="e.g. 101"
-                                        className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                        {t('modal_full_name_label')} <span className="text-red-500">*</span>
-                                    </label>
-                                    <input
-                                        type="text"
-                                        required
-                                        value={fullName}
-                                        onChange={(e) => setFullName(e.target.value)}
-                                        placeholder="John Doe"
-                                        className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                        {t('modal_dept_label')}
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={department}
-                                        onChange={(e) => setDepartment(e.target.value)}
-                                        placeholder="e.g. Logistics"
-                                        className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                        {t('modal_branch_label')}
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={branch}
-                                        onChange={(e) => setBranch(e.target.value)}
-                                        placeholder="e.g. Main Branch"
-                                        className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    />
-                                </div>
-                            </div>
-
-                            <div>
-                                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                    {t('modal_designation_label')}
-                                </label>
-                                <input
-                                    type="text"
-                                    value={designation}
-                                    onChange={(e) => setDesignation(e.target.value)}
-                                    placeholder="e.g. Operations Specialist"
-                                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                />
-                            </div>
-
-                            <div className="flex items-center justify-between pt-3 border-t border-slate-200 dark:border-slate-800/80">
-                                {editingEmployee ? (
-                                    <button
-                                        type="button"
-                                        onClick={() => setDeletingEmployee(editingEmployee)}
-                                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-xs font-semibold border border-rose-200 dark:border-rose-900/50 transition-colors cursor-pointer"
-                                    >
-                                        <Trash2 size={14} />
-                                        <span>{t('btn_delete_employee')}</span>
-                                    </button>
-                                ) : (
-                                    <div />
-                                )}
-
-                                <div className="flex items-center gap-3">
-                                    <button
-                                        type="button"
-                                        onClick={() => setIsModalOpen(false)}
-                                        className="px-4 py-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium transition-colors cursor-pointer"
-                                    >
-                                        {t('cancel')}
-                                    </button>
-                                    <button
-                                        type="submit"
-                                        disabled={isSaving}
-                                        className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold shadow-sm shadow-blue-500/20 disabled:opacity-50 transition-all cursor-pointer"
-                                    >
-                                        {isSaving ? t('saving') : (editingEmployee ? t('save') : t('modal_register_emp'))}
-                                    </button>
-                                </div>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            )}
-
-            {/* Delete Employee Confirmation Dialog */}
-            {deletingEmployee && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
-                    <div className="bg-white dark:bg-[#0c121e] rounded-2xl p-6 max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 animate-in zoom-in-95 duration-150">
-                        <div className="flex items-start gap-3">
-                            <div className="p-2.5 rounded-full bg-rose-100 dark:bg-rose-950/80 text-rose-600 dark:text-rose-400 shrink-0">
-                                <AlertTriangle size={20} />
-                            </div>
-                            <div>
-                                <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                                    {t('confirm_delete_emp_title')}
-                                </h3>
-                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                                    {t('confirm_delete_emp_desc')}
-                                </p>
-                                <div className="mt-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-xs space-y-1">
-                                    <div className="font-semibold text-slate-900 dark:text-white">
-                                        {deletingEmployee.full_name}
-                                    </div>
-                                    <div className="font-mono text-slate-500 dark:text-slate-400">
-                                        PIN: {deletingEmployee.pin} {deletingEmployee.branch ? `• ${deletingEmployee.branch}` : ''}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="flex items-center justify-end rtl:justify-start gap-3 pt-2">
-                            <button
-                                type="button"
-                                onClick={() => setDeletingEmployee(null)}
-                                disabled={isDeleting}
-                                className="px-4 py-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold transition-colors cursor-pointer"
-                            >
-                                {t('cancel')}
-                            </button>
-                            <button
-                                type="button"
-                                onClick={handleDeleteEmployee}
-                                disabled={isDeleting}
-                                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-sm shadow-rose-500/20 disabled:opacity-50 transition-all cursor-pointer"
-                            >
-                                <Trash2 size={13} />
-                                <span>{isDeleting ? t('deleting') || 'Deleting...' : t('btn_delete_employee')}</span>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
+  const departmentCount = useMemo(() => {
+    const set = new Set(
+      employees.map((employee) => employee.department).filter(Boolean),
     );
+    return set.size;
+  }, [employees]);
+
+  const filteredAndSorted = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+
+    const filtered = employees.filter((employee) => {
+      if (branchFilter !== 'all' && employee.branch !== branchFilter) return false;
+      if (!term) return true;
+      return (
+        employee.full_name.toLowerCase().includes(term) ||
+        employee.pin.toLowerCase().includes(term) ||
+        (employee.department || '').toLowerCase().includes(term) ||
+        (employee.designation || '').toLowerCase().includes(term)
+      );
+    });
+
+    return filtered.sort((a, b) =>
+      sortOrder === 'asc'
+        ? compareEmployees(a, b, sortKey)
+        : -compareEmployees(a, b, sortKey),
+    );
+  }, [employees, branchFilter, searchTerm, sortKey, sortOrder]);
+
+  const isFiltering = searchTerm.trim() !== '' || branchFilter !== 'all';
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title={t('emp_title')}
+        description={t('emp_subtitle')}
+        badge={
+          <Badge tone="brand" size="md" icon={Users}>
+            {employees.length} {t('emp_count_label')}
+          </Badge>
+        }
+        actions={
+          <Button icon={Plus} onClick={openAddModal}>
+            {t('btn_add_employee')}
+          </Button>
+        }
+      />
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricTile
+          label={t('emp_count_label')}
+          value={employees.length}
+          icon={Users}
+          tone="aurora"
+        />
+        <MetricTile
+          label={t('emp_metric_branches')}
+          value={branches.length}
+          icon={Building2}
+          tone="info"
+        />
+        <MetricTile
+          label={t('emp_metric_departments')}
+          value={departmentCount}
+          icon={Layers}
+          tone="brand"
+        />
+        <MetricTile
+          label={t('emp_metric_showing')}
+          value={filteredAndSorted.length}
+          icon={Search}
+          tone={isFiltering ? 'success' : 'warning'}
+        />
+      </div>
+
+      <Card className="flex flex-col items-stretch gap-3 p-4 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
+          <Search
+            size={15}
+            aria-hidden="true"
+            className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-ink-subtle"
+          />
+          <Input
+            type="search"
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder={t('emp_search_placeholder')}
+            aria-label={t('emp_filter_label')}
+            className="ps-9"
+          />
+        </div>
+
+        <div className="sm:w-52">
+          <Select
+            value={branchFilter}
+            onChange={(event) => setBranchFilter(event.target.value)}
+            aria-label={t('filter_branch')}
+          >
+            <option value="all">{t('filter_all_branches')}</option>
+            {branches.map((branch) => (
+              <option key={branch} value={branch}>
+                {branch}
+              </option>
+            ))}
+          </Select>
+        </div>
+
+        {isFiltering && (
+          <Badge tone="brand" size="sm" className="shrink-0">
+            {filteredAndSorted.length} {t('emp_search_result')}
+          </Badge>
+        )}
+      </Card>
+
+      <TableCard>
+        <TableScroll>
+          <Table caption={t('emp_title')} className="min-w-[52rem]">
+            <THead>
+              <tr>
+                <SortHeader
+                  columnKey="pin"
+                  label={t('col_pin')}
+                  activeKey={sortKey}
+                  sortOrder={sortOrder}
+                  onSort={handleSort}
+                />
+                <SortHeader
+                  columnKey="full_name"
+                  label={t('col_full_name')}
+                  activeKey={sortKey}
+                  sortOrder={sortOrder}
+                  onSort={handleSort}
+                />
+                <SortHeader
+                  columnKey="department"
+                  label={t('col_department')}
+                  activeKey={sortKey}
+                  sortOrder={sortOrder}
+                  onSort={handleSort}
+                />
+                <SortHeader
+                  columnKey="branch"
+                  label={t('col_branch')}
+                  activeKey={sortKey}
+                  sortOrder={sortOrder}
+                  onSort={handleSort}
+                />
+                <SortHeader
+                  columnKey="designation"
+                  label={t('col_designation')}
+                  activeKey={sortKey}
+                  sortOrder={sortOrder}
+                  onSort={handleSort}
+                />
+                <Th align="end">{t('actions')}</Th>
+              </tr>
+            </THead>
+
+            <TBody>
+              {isLoading && (
+                <TableMessageRow colSpan={6}>
+                  <TableSkeleton rows={6} columns={6} />
+                </TableMessageRow>
+              )}
+
+              {!isLoading &&
+                filteredAndSorted.map((employee, index) => (
+                  <Tr
+                    key={employee.pin}
+                    className="stagger-in"
+                    style={{ '--ui-i': Math.min(index, 12) } as CSSProperties}
+                  >
+                    <Td numeric className="font-mono font-bold text-ink-muted">
+                      {employee.pin}
+                    </Td>
+                    <Td>
+                      <div className="flex items-center gap-3">
+                        <Avatar name={employee.full_name} size="sm" />
+                        <span className="truncate font-semibold text-ink">
+                          {employee.full_name}
+                        </span>
+                      </div>
+                    </Td>
+                    <Td>
+                      {employee.department ? (
+                        <span className="flex items-center gap-1.5 text-xs text-ink-muted">
+                          <Building2
+                            size={13}
+                            className="shrink-0 text-ink-subtle"
+                            aria-hidden="true"
+                          />
+                          {employee.department}
+                        </span>
+                      ) : (
+                        <span className="text-ink-subtle">—</span>
+                      )}
+                    </Td>
+                    <Td>
+                      {employee.branch ? (
+                        <Badge tone="brand" size="sm">
+                          {employee.branch}
+                        </Badge>
+                      ) : (
+                        <span className="text-ink-subtle">—</span>
+                      )}
+                    </Td>
+                    <Td className="text-xs text-ink-muted">
+                      {employee.designation || <span className="text-ink-subtle">—</span>}
+                    </Td>
+                    <Td align="end">
+                      <div className="inline-flex items-center gap-1.5">
+                        <Button
+                          variant="subtle"
+                          size="sm"
+                          icon={Edit}
+                          onClick={() => openEditModal(employee)}
+                          aria-label={`${t('edit')} ${employee.full_name}`}
+                        >
+                          {t('edit')}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="iconSm"
+                          onClick={() => setDeletingEmployee(employee)}
+                          aria-label={`${t('btn_delete_employee')} ${employee.full_name}`}
+                          title={t('btn_delete_employee')}
+                          className="text-ink-subtle hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40 dark:hover:text-rose-400"
+                        >
+                          <Trash2 size={14} />
+                        </Button>
+                      </div>
+                    </Td>
+                  </Tr>
+                ))}
+
+              {!isLoading && filteredAndSorted.length === 0 && (
+                <TableMessageRow colSpan={6}>
+                  <EmptyState
+                    icon={Users}
+                    title={t('no_employees_found')}
+                    description={isFiltering ? undefined : t('emp_subtitle')}
+                    action={
+                      isFiltering
+                        ? undefined
+                        : { label: t('btn_add_employee'), onClick: openAddModal }
+                    }
+                  />
+                </TableMessageRow>
+              )}
+            </TBody>
+          </Table>
+        </TableScroll>
+      </TableCard>
+
+      <Modal
+        open={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        title={editingEmployee ? t('modal_edit_emp') : t('modal_register_emp')}
+        description={
+          editingEmployee
+            ? `${t('edit')} — PIN ${editingEmployee.pin}`
+            : t('modal_pin_desc')
+        }
+        closeLabel={t('close')}
+        footer={
+          <>
+            {editingEmployee && (
+              <Button
+                variant="dangerGhost"
+                icon={Trash2}
+                className="me-auto"
+                onClick={() => setDeletingEmployee(editingEmployee)}
+              >
+                {t('btn_delete_employee')}
+              </Button>
+            )}
+            <Button variant="ghost" onClick={() => setIsModalOpen(false)}>
+              {t('cancel')}
+            </Button>
+            <Button type="submit" form="employee-form" loading={isSaving}>
+              {editingEmployee ? t('save') : t('modal_register_emp')}
+            </Button>
+          </>
+        }
+      >
+        <form id="employee-form" onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field
+              label={t('modal_pin_label')}
+              required
+              hint={editingEmployee ? t('emp_pin_locked_hint') : undefined}
+            >
+              <Input
+                required
+                value={form.pin}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, pin: event.target.value }))
+                }
+                disabled={Boolean(editingEmployee)}
+                placeholder={t('emp_pin_placeholder')}
+                inputMode="numeric"
+              />
+            </Field>
+
+            <Field label={t('modal_full_name_label')} required>
+              <Input
+                required
+                value={form.full_name}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, full_name: event.target.value }))
+                }
+                placeholder={t('emp_name_placeholder')}
+              />
+            </Field>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label={t('modal_dept_label')}>
+              <Input
+                value={form.department}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, department: event.target.value }))
+                }
+                placeholder={t('emp_dept_placeholder')}
+              />
+            </Field>
+
+            <Field label={t('modal_branch_label')}>
+              <Input
+                value={form.branch}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, branch: event.target.value }))
+                }
+                placeholder={t('emp_branch_placeholder')}
+              />
+            </Field>
+          </div>
+
+          <Field label={t('modal_designation_label')}>
+            <Input
+              value={form.designation}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, designation: event.target.value }))
+              }
+              placeholder={t('emp_designation_placeholder')}
+            />
+          </Field>
+        </form>
+      </Modal>
+
+      <ConfirmDialog
+        open={deletingEmployee !== null}
+        onClose={() => setDeletingEmployee(null)}
+        onConfirm={() => void handleDeleteEmployee()}
+        title={t('confirm_delete_emp_title')}
+        description={t('confirm_delete_emp_desc')}
+        details={
+          deletingEmployee && (
+            <div className="space-y-1">
+              <p className="font-semibold text-ink">{deletingEmployee.full_name}</p>
+              <p className="font-mono text-ink-muted">
+                PIN: {deletingEmployee.pin}
+                {deletingEmployee.branch ? ` • ${deletingEmployee.branch}` : ''}
+              </p>
+            </div>
+          )
+        }
+        confirmLabel={t('btn_delete_employee')}
+        cancelLabel={t('cancel')}
+        loading={isDeleting}
+      />
+    </div>
+  );
 }
