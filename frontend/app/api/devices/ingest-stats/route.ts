@@ -21,9 +21,8 @@ import {
  *     is missing from the response would be invisible, which is the exact
  *     failure this whole screen exists to prevent.
  *  2. It never reports an inferred number as if it had been counted at ingest.
- *     Before `device_ingest_stats.sql` is applied there are no receipt counters,
- *     so it derives what it can from the rows already stored and marks the cell
- *     `derived`, which the panel shows as such.
+ *     Any table without a receipt counter is derived from the rows already
+ *     stored and marked `derived`, which the panel shows as such.
  */
 
 interface DeviceRow {
@@ -120,13 +119,18 @@ export async function GET(request: Request) {
                     if (row.sn === device.sn) byTable.set(row.table_name, row);
                 }
 
-                if (!migrationApplied) {
-                    const derived = await Promise.all(
-                        DERIVED_SOURCES.map((source) => deriveRow(supabase, source, device.sn)),
-                    );
-                    for (const row of derived) {
-                        if (row) byTable.set(row.table_name, row);
-                    }
+                // Derived for any table with no receipt counter. Before the
+                // migration that is every table; after it the counters start empty,
+                // so a terminal with 14,000 stored punches would otherwise read as
+                // "never received" until its next push. Counters always win.
+                const counted = new Set(byTable.keys());
+                const derived = await Promise.all(
+                    DERIVED_SOURCES.filter((source) => !counted.has(source.table)).map(
+                        (source) => deriveRow(supabase, source, device.sn),
+                    ),
+                );
+                for (const row of derived) {
+                    if (row) byTable.set(row.table_name, row);
                 }
 
                 const cells = tables.map((table) => {
