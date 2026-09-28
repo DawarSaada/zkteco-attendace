@@ -314,7 +314,7 @@ It is also incomplete: it omits `ADMS_SECRET_TOKEN` (required by B4) and underse
 | `RESEND_API_KEY` / `RESEND_FROM` | ✅ | from address must be on a verified domain |
 | `SMTP_*` | optional | fallback path only |
 
-Also required outside env: Supabase Auth site + redirect URLs configured; `attendance_logs` added to the `supabase_realtime` publication; SQL migrations run **in order** — `database_schema.sql` → `secure_rls.sql` → `attendance_engine.sql` → `phase2_provisioning.sql` → `phase3_leave_exceptions.sql` → `phase4_roles_audit.sql` → `phase5_reporting.sql` → `phase7_self_service.sql` → `device_ingest_stats.sql`; Vercel cron enabled. Per the §18 audit, only the migrations through `phase5`'s tables are currently applied.
+Also required outside env: Supabase Auth site + redirect URLs configured; `attendance_logs` added to the `supabase_realtime` publication; SQL migrations run **in order** — `database_schema.sql` → `secure_rls.sql` → `attendance_engine.sql` → `phase2_provisioning.sql` → `phase3_leave_exceptions.sql` → `phase4_roles_audit.sql` → `phase5_reporting.sql` → `phase7_self_service.sql` → `device_ingest_stats.sql`; Vercel cron enabled. Per the §20 audit, every migration through `device_ingest_stats.sql` is applied as of 2026-09-28; `secure_rls.sql` (item 1) and the attendance backfill (item 3) are the two steps still outstanding.
 
 ---
 
@@ -874,7 +874,80 @@ because of a bookkeeping failure, or it would resend its entire batch.
 
 ---
 
-## 18. Migration audit — what the live project actually has
+## 18. Latency — where the time actually goes
+
+Measured 2026-09-28 against the live project from a machine in Saudi Arabia, warm server, with the
+service-role key:
+
+| Probe | Time |
+|---|---|
+| One trivial Supabase round trip (`select` one row) | 182–375 ms |
+| Any API endpoint, before the auth change | 620–1240 ms |
+| The same endpoints, after | 400–930 ms |
+
+The cost is **round trips, not queries**. A trivial one-row `select` costs as much as the heaviest
+report query, and the 14,943-row reporting view answers in the same budget as a one-row lookup. What
+varies is how many round trips a request makes:
+
+1. **Session verification** — used to be one Auth-server hop per request. This project signs JWTs
+   with asymmetric keys (ES256 — confirmed from `/.well-known/jwks.json`), so `lib/auth-guard.ts` now
+   verifies the token locally against the cached JWKS via `getClaims()`. That removed 180–380 ms from
+   *every* authenticated endpoint, including the dashboard layout, which runs on every navigation.
+2. **The role lookup** — routes that call `requireRole` read `profiles`, one hop.
+3. **One hop per data query.** `/api/reports/daily` pays two in the current state: it probes the
+   empty `attendance_days`, finds nothing, then queries the legacy view. Backfilling the engine
+   removes a whole hop from every report request.
+
+A page then assembles its data from 3–6 such endpoints, which is why a page that feels “slow to
+show data” is really paying for a dozen sequential-ish round trips.
+
+### The fix that matters most: run the functions near the database
+
+The database lives in AWS **`ap-south-1` (Mumbai)** — the server's own address resolves into
+`2406:da1a::/35`, which AWS's published `ip-ranges.json` maps to that region. Vercel functions default
+to `iad1` (Washington DC), which puts roughly a quarter of a second of ocean on **every** hop: a
+single-query route costs ~450 ms there almost regardless of what it asks for.
+
+`vercel.json` therefore pins the project to `bom1`:
+
+```json
+"regions": ["bom1"]
+```
+
+Hobby allows exactly one region, which is all this needs. Co-located hops are single-digit
+milliseconds, so a two-hop route drops from ~400 ms to ~10 ms and the page-level latency collapses
+with it. If the Supabase project is ever moved, this value has to move with it.
+
+---
+
+## 19. Cron schedules on the Hobby plan
+
+Vercel rejects `0 * * * *` on Hobby with *“would run more than once per day”*, and an hourly trigger
+is what the report dispatcher was built around: `isDue()` matched a rule's `dispatch_time` **hour**
+exactly. The two cannot coexist, and the failure mode of forcing a daily trigger onto an exact-hour
+test is the worst one available — a rule set for 20:00 would be skipped on its dispatch day and lose
+that month's payroll report entirely.
+
+So the fix is on both sides:
+
+- **`vercel.json`** now schedules the dispatcher at `55 20 * * *` — 23:55 Saudi time, five minutes
+  before the Saudi day ends. Every `dispatch_time` in the day has passed by then, so nothing is
+  skipped; `/api/cron/attendance` stays at `15 0 * * *` (03:15 AST), which was already daily.
+- **`isDue()`** now treats a rule as due *from* its preferred hour, and `last_run_at` closes it for
+  the rest of that Saudi day (previously: same-hour). With an hourly cron that is the old behaviour
+  exactly — it fires in its own hour and later runs skip it — while the once-daily cron catches it
+  later the same day instead of dropping it.
+
+Consequence on Hobby, stated plainly: a rule asking for 08:00 is dispatched in the 23:55 run on the
+correct day, because the plan cannot run the job hourly. Upgrading to Pro and restoring
+`0 * * * *` makes the exact hour apply again with no code change. Either way a period is dispatched
+once: `lib/reports/schedule.test.ts` pins the hourly case, the catch-up case, the “never twice in one
+Saudi day” rule, and that catch-up does not leak into the next Saudi day (02:55 AST on the 27th
+cannot send the 26th's period).
+
+---
+
+## 20. Migration audit — what the live project actually has
 
 Probed on 2026-09-28 with the service-role key, read-only, using PostgREST: a `select` against a
 missing table answers `PGRST205`, and a `select` of a missing column answers `42703`. No SQL was
@@ -902,4 +975,28 @@ both answer **500**, the device data panel falls back to its derived mode, `/das
 resolves to the fallback role.
 
 Order matters when these are run: `device_ingest_stats.sql` calls `can_write()`, which
-`phase4_roles_audit.sql` creates.
+`phase4_roles_audit.sql` creates, and `phase4` itself creates policies **by name** on the engine's
+tables (`attendance_policies`, `shift_periods`, `employee_shift_assignments`, `holidays`,
+`attendance_days`) and on phase2's and phase3's, so it fails on a database that has not run
+`attendance_engine.sql`, `phase2` and `phase3` first. The full order is therefore:
+`attendance_engine.sql` → `phase2` → `phase3` → `phase4` → `phase5` → `phase7` →
+`device_ingest_stats.sql`, each file inside its own transaction so a failure rolls back whole.
+
+**Applied on 2026-09-28.** All seven ran clean. Verified afterwards: 24 tables, every new column
+present, RLS enabled on all 24, and the signed-in user bootstrapped into `profiles` as `owner`. The
+two endpoints that answered 500 before (`/api/exceptions`, `/api/attendance/approvals`) now answer
+200, along with `/api/leave/requests`, `/api/holidays` and `/api/me/summary`.
+
+Still open from this audit:
+
+- **`secure_rls.sql` has not been applied.** The eight original tables keep the legacy
+  `Enable all access for all users` policy (`roles = public`, `qual = true`) and `anon` keeps its
+  table grants, so — because permissive policies OR together — the read/write policies `phase4` just
+  created are **no-ops on those tables**. Demonstrated, not inferred: the public anon key returns
+  `HTTP 206` with `content-range: 0-0/14943` for `attendance_logs`. This is blocker B1.
+- **`shifts` and `employee_shifts` are empty**, so the engine backfilled `shift_periods` and
+  `employee_shift_assignments` with 0 rows — correct, but it means there is no roster or shift
+  definition behind the engine yet.
+- **`attendance_days` is empty**, so reporting still reads the legacy view. The backfill
+  (`POST /api/attendance/recompute`) is deliberately left as its own step: it is the point where
+  the engine's numbers replace the legacy ones, and those should be spot-checked first.

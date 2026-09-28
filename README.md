@@ -83,10 +83,16 @@ built-in test runner — no extra dependency.
    manages everyone else from `/dashboard/users`, including linking each employee's login to
    their PIN.
 5. Commission each terminal with `https://<domain>/iclock?token=<ADMS_SECRET_TOKEN>`.
+6. Check `frontend/vercel.json` before deploying: `regions` must point at the database's region,
+   and both cron entries must be once-daily schedules (Vercel rejects an hourly one on Hobby).
+   See `PRODUCTION_READINESS.md` §18 and §19.
 
-Migrations are **not** applied yet, per the audit in `PRODUCTION_READINESS.md` §18 — the database
-currently holds only `database_schema.sql` plus the two `report_automations` tables, so approvals,
-exceptions, roles and self-service all fall back to their degraded paths until the list above is run.
+Applied on 2026-09-28 (audit in `PRODUCTION_READINESS.md` §20): `attendance_engine.sql` and
+phase2 → phase3 → phase4 → phase5 → phase7 → `device_ingest_stats.sql` are in place, so roles, leave,
+exceptions, approvals, self-service and the ingest counters are live. Two items above are still
+outstanding: **`secure_rls.sql`** (item 1 — until it runs, the eight original tables still carry the
+legacy `Enable all access for all users` policy, which anything holding the public anon key can
+read) and the **attendance backfill** (item 3 — until it runs, reporting reads the legacy view).
 
 ## Checks
 
@@ -100,5 +106,5 @@ npm test           # node --test over lib/**/*.test.ts
 ```
 
 See section 12 of `PRODUCTION_READINESS.md` for the security checklist, §13 for the
-attendance-engine steps, §14–§15 for the later phases, §16 for the quality gates, and §18 for the
-migration audit.
+attendance-engine steps, §14–§15 for the later phases, §16 for the quality gates, §18 for the
+latency measurements, §19 for the cron schedules and §20 for the migration audit.
