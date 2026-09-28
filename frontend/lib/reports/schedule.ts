@@ -1,12 +1,17 @@
-import { addDays, toDateKey } from '@/lib/attendance/engine';
+// Relative with the explicit extension on purpose: the tests for this module run
+// through `node --test` on the TypeScript sources directly, which resolves
+// neither the `@/` alias nor an extensionless specifier.
+import { addDays, toDateKey } from '../attendance/engine.ts';
 
 /**
  * Scheduling logic for report automations.
  *
- * The cron runs hourly and asks this module which rules are due, so the
- * `dispatch_time` column the UI has always exposed is finally honoured (M4).
- * Everything here is pure and works on "Saudi wall clock" dates, matching the
- * payroll cycle convention the rest of the app uses (UTC+3, no DST).
+ * The cron asks this module which rules are due, so the `dispatch_time` column
+ * the UI has always exposed is finally honoured (M4). Everything here is pure and
+ * works on "Saudi wall clock" dates, matching the payroll cycle convention the
+ * rest of the app uses (UTC+3, no DST).
+ *
+ * It has to hold for two very different cron schedules — see `isDue`.
  */
 
 export type Cadence = 'monthly' | 'weekly' | 'daily';
@@ -50,16 +55,26 @@ function parseHour(dispatchTime?: string | null): number {
 }
 
 /**
- * Is this rule due in the current Saudi hour?
- * The cron is hourly, so an exact hour match is the trigger; a rule already run
- * in the same hour is skipped so a retried cron invocation cannot double-send.
+ * Is this rule due now?
+ *
+ * Two constraints shape the answer:
+ *  - Vercel's Hobby plan allows only a once-daily cron, so the job cannot always
+ *    run in the hour a rule asked for. An exact hour match would then skip every
+ *    rule whose `dispatch_time` is later than the run — losing that period
+ *    outright, which for a payroll report is not an acceptable trade.
+ *  - One period must never be sent twice.
+ *
+ * So a rule becomes due at its preferred hour and stays due for the rest of that
+ * Saudi day, and `last_run_at` closes it once it has gone out. With an hourly
+ * cron that is exactly the old behaviour (fires in its own hour, later runs skip
+ * it); with the once-daily cron it fires in that run instead of being dropped.
  */
 export function isDue(rule: AutomationLike, now: SaudiNow): boolean {
-  if (parseHour(rule.dispatch_time) !== now.hour) return false;
+  if (now.hour < parseHour(rule.dispatch_time)) return false;
 
   if (rule.last_run_at) {
     const last = new Date(rule.last_run_at);
-    if (!Number.isNaN(last.getTime()) && now.hour === saudiNow(last).hour && saudiNow(last).dateKey === now.dateKey) {
+    if (!Number.isNaN(last.getTime()) && saudiNow(last).dateKey === now.dateKey) {
       return false;
     }
   }
