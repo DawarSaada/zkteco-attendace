@@ -1,6 +1,17 @@
 -- =============================================
 -- ZKTeco BioTime Alternative - Database Schema
 -- Run this in Supabase SQL Editor
+--
+-- SECURITY: this file previously created `FOR ALL USING (true)` policies with
+-- no `TO` clause on every table and then granted ALL to `anon`. A policy with
+-- no `TO` applies to PUBLIC (including `anon`), so the public anon key could
+-- read, insert, update and delete the whole database. That is fixed below:
+-- policies are `TO authenticated` with an explicit `WITH CHECK`, `anon` gets no
+-- grants, and the reporting view is created with `security_invoker` so it can
+-- no longer bypass RLS.
+--
+-- If an older version of this file was ever run, also run `secure_rls.sql`,
+-- which drops the legacy permissive policies and revokes the legacy grants.
 -- =============================================
 
 -- Enable UUID extension
@@ -127,6 +138,11 @@ GROUP BY
   a.pin, 
   DATE(a.timestamp);
 
+-- Make the view respect the caller's RLS. Without this Postgres 15+ creates it
+-- as SECURITY DEFINER, so it would read the base tables as its owner and leak
+-- every attendance row to any role that can select from it.
+ALTER VIEW public.daily_attendance_summary SET (security_invoker = true);
+
 -- 10. Enable RLS (Row Level Security)
 ALTER TABLE public.devices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.employees ENABLE ROW LEVEL SECURITY;
@@ -137,33 +153,25 @@ ALTER TABLE public.employee_shifts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.report_automations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.report_automation_logs ENABLE ROW LEVEL SECURITY;
 
--- 11. Setup RLS Policies (Safe creation if already existing)
-DO $$ 
+-- 11. Setup RLS Policies
+-- Scoped `TO authenticated` with an explicit `WITH CHECK`: `anon` has no policy,
+-- so it has no access even before the grants below are considered.
+-- (Every authenticated user is an admin until a role model exists — see M3 in
+-- PRODUCTION_READINESS.md.)
+DO $$
+DECLARE
+    target_table TEXT;
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'devices' AND policyname = 'Enable all access for all users') THEN
-        CREATE POLICY "Enable all access for all users" ON public.devices FOR ALL USING (true);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'employees' AND policyname = 'Enable all access for all users') THEN
-        CREATE POLICY "Enable all access for all users" ON public.employees FOR ALL USING (true);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'attendance_logs' AND policyname = 'Enable all access for all users') THEN
-        CREATE POLICY "Enable all access for all users" ON public.attendance_logs FOR ALL USING (true);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'device_commands' AND policyname = 'Enable all access for all users') THEN
-        CREATE POLICY "Enable all access for all users" ON public.device_commands FOR ALL USING (true);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'shifts' AND policyname = 'Enable all access for all users') THEN
-        CREATE POLICY "Enable all access for all users" ON public.shifts FOR ALL USING (true);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'employee_shifts' AND policyname = 'Enable all access for all users') THEN
-        CREATE POLICY "Enable all access for all users" ON public.employee_shifts FOR ALL USING (true);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'report_automations' AND policyname = 'Enable all access for all users') THEN
-        CREATE POLICY "Enable all access for all users" ON public.report_automations FOR ALL USING (true);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'report_automation_logs' AND policyname = 'Enable all access for all users') THEN
-        CREATE POLICY "Enable all access for all users" ON public.report_automation_logs FOR ALL USING (true);
-    END IF;
+    FOREACH target_table IN ARRAY ARRAY[
+        'devices', 'employees', 'attendance_logs', 'device_commands',
+        'shifts', 'employee_shifts', 'report_automations', 'report_automation_logs'
+    ] LOOP
+        EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', 'Enable all access for all users', target_table);
+        EXECUTE format(
+            'CREATE POLICY %I ON public.%I FOR ALL TO authenticated USING (auth.uid() IS NOT NULL) WITH CHECK (auth.uid() IS NOT NULL)',
+            'authenticated_full_access', target_table
+        );
+    END LOOP;
 END $$;
 
 -- 12. Enable Supabase Realtime Publication for Live Monitoring
@@ -182,10 +190,14 @@ BEGIN
 END $$;
 
 -- 13. Grant permissions
-GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated, anon, service_role, postgres;
-GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated, anon, service_role, postgres;
-GRANT ALL ON ALL ROUTINES IN SCHEMA public TO authenticated, anon, service_role, postgres;
-GRANT SELECT ON public.daily_attendance_summary TO authenticated, anon, service_role, postgres;
+-- `anon` is deliberately absent. Browser code authenticates first and then acts
+-- as `authenticated`; device ingestion and API routes use `service_role`.
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon;
+REVOKE ALL ON public.daily_attendance_summary FROM anon;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated, service_role, postgres;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated, service_role, postgres;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO authenticated, service_role, postgres;
+GRANT SELECT ON public.daily_attendance_summary TO authenticated, service_role, postgres;
 
 -- 14. High-Performance B-Tree Indexes for Instant Query Response
 CREATE INDEX IF NOT EXISTS idx_attendance_logs_timestamp ON public.attendance_logs(timestamp DESC);
