@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/server';
 import { requireAuthUser, getErrorMessage } from '@/lib/auth-guard';
 import { getProfile } from '@/lib/auth/roles';
+import { loadReportDays } from '@/lib/reports/source';
 import { summariseDays, type PayslipDayInput } from '@/lib/attendance/summary';
 import { saudiNow } from '@/lib/reports/schedule';
 
@@ -52,21 +53,15 @@ export async function GET(request: Request) {
 
     const pin = profile.employee_pin;
 
-    const [employeeRes, daysRes, shiftRes, requestsRes, exceptionRes] = await Promise.all([
+    const [employeeRes, dayResult, shiftRes, requestsRes, exceptionRes] = await Promise.all([
       supabase
         .from('employees')
         .select('pin, full_name, branch, department')
         .eq('pin', pin)
         .maybeSingle(),
-      supabase
-        .from('attendance_days')
-        .select(
-          'work_date, status, expected_minutes, worked_minutes, late_minutes, early_leave_minutes, overtime_minutes, first_in, last_out, punch_count',
-        )
-        .eq('pin', pin)
-        .gte('work_date', from)
-        .lte('work_date', to)
-        .order('work_date', { ascending: false }),
+      // Engine rows overlaid on the legacy punch log: a month the engine has not
+      // recomputed still shows the employee's days instead of an empty payslip.
+      loadReportDays(supabase, { start: from, end: to, pin }),
       supabase
         .from('employee_shifts')
         .select('shifts(name, start_time, end_time)')
@@ -87,7 +82,10 @@ export async function GET(request: Request) {
         .limit(20),
     ]);
 
-    const days = (daysRes.data ?? []) as PayslipDayInput[];
+    // Newest day first for the feed; the same rows feed the payslip totals.
+    const days: PayslipDayInput[] = [...dayResult.days]
+      .sort((a, b) => (b.work_date ?? '').localeCompare(a.work_date ?? ''))
+      .map((day) => ({ ...day, status: day.status as PayslipDayInput['status'] }));
     const summary = summariseDays(days);
 
     const shiftRow = shiftRes.data as
@@ -105,9 +103,11 @@ export async function GET(request: Request) {
       shift: shiftRow?.shifts ?? null,
       range: { from, to },
       summary,
-      // `attendance_days` may not be backfilled yet; `engineApplied` lets the page
-      // say so instead of implying the employee had no attendance at all.
-      engineApplied: !daysRes.error,
+      // Every day in the range carries engine figures when the engine has
+      // computed them; `derivedDays > 0` means some came from the legacy punch log
+      // instead, so the page can say so rather than implying a full payslip.
+      engineApplied: dayResult.derivedDays === 0,
+      derivedDays: dayResult.derivedDays,
       days,
       requests: requestsRes.data ?? [],
       openExceptions: exceptionRes.data ?? [],

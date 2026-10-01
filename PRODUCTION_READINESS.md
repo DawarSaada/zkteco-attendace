@@ -1000,3 +1000,75 @@ Still open from this audit:
 - **`attendance_days` is empty**, so reporting still reads the legacy view. The backfill
   (`POST /api/attendance/recompute`) is deliberately left as its own step: it is the point where
   the engine's numbers replace the legacy ones, and those should be spot-checked first.
+
+## 21. Reports read both attendance tables (the "missing data" bug)
+
+Diagnosed and fixed on 2026-10-01 against the live project, with the service-role key and `psql`.
+
+### What the user saw
+
+The Reports page showed one row for a month that has 374, and the Overview tile said 1 employee
+present on a day when 11 had punched. Nothing errored: the API answered 200 with a short body.
+
+### Root cause
+
+`GET /api/reports/daily` preferred `attendance_days` and fell back to the legacy
+`daily_attendance_summary` view **only when the engine table was completely empty**. The engine table
+is not backfilled — `recomputeRange` writes it incrementally, from the nightly cron and from every
+punch edit. Two punch edits on 2026-09-29 and 2026-10-01 had put exactly 2 rows in it, so from then
+on the fallback never fired again and every report range was answered from those 2 rows:
+
+| Range | Rows before the fix | Rows after | DB truth |
+|---|---|---|---|
+| 2026-09-01 to 09-30 | 1 | 374 | 374 |
+| 2026-10-01 to 10-31 | 1 | 11 | 11 |
+| 2026-07-01 to 09-30 | 1 | 1255 | 1255 |
+| 2026-01-01 to 10-31 | 2 | 3780 | 3780 |
+
+The same two-table mistake sat in `/api/reports/run/<type>` (report packs) and `/api/me/summary`
+(my attendance), which read the engine alone and were therefore empty for every range.
+
+### Second bug: PostgREST truncates at 1000 rows, silently
+
+Every legacy read was unpaged. PostgREST caps a response at the project's Max Rows setting and does
+not say so in the body. Measured with `select=pin,punch_date&limit=5000` against
+`daily_attendance_summary`: `HTTP 206`, `content-range: 0-999/3780`, **1000 rows returned**. So a
+quarter-long Excel export, the monthly emailed report and any custom range over ~1000 summary rows
+were all quietly short.
+
+### The fix
+
+`lib/reports/source.ts` is now the single reader for daily attendance:
+
+- **Union, engine wins.** Rows are keyed by `(pin, work_date)`; the engine overlays its figures
+  (status, expected/worked/late/early-leave/overtime) on the legacy row, which still supplies the
+  device name the engine does not store. A day with a shift and no punches exists only in the
+  engine, and an un-backfilled day exists only in the legacy view, so neither source alone is
+  complete over a range.
+- **Paging.** Every read walks `range()` in 1000-row pages, ordered by `work_date`/`punch_date` and
+  `pin`, and refuses to return a set it could not finish reading.
+- **Packs and self-service reuse it.** `lib/reports/service.ts` maps the merged rows to the engine's
+  day input; legacy-derived days get their worked/expected/late/overtime from the shift window and
+  the punch pair, and claim no lateness at all when the employee has no shift to compare against.
+
+`/api/reports/daily` reports `X-Report-Engine-Rows` / `X-Report-Derived-Rows`, and the Reports page
+shows an amber note while a range still contains days the engine has not recomputed.
+
+### Verified after the fix
+
+`npx tsc --noEmit` clean, `npm run lint` clean, `npm test` 84/84 (12 new tests in
+`lib/reports/source.test.ts`), `npm run build` clean. Live, through a signed-in session:
+Reports 11 rows for October with the source note, Overview 17 punches / 11 present today with a full
+14-day trend, report packs `timecard` 15 employees and `exceptions` 7 rows for September, the
+full-year Excel export 2.1 MB. Every other section's API matches the database exactly:
+16 employees, 1 device, 3 leave types, 1 leave request, 48 balances, 2 exceptions, 11 audit entries,
+10 automation logs.
+
+### Still open (configuration, not loading)
+
+- `shifts` and `employee_shifts` hold 0 rows, so the engine cannot compute expected/late/overtime and
+  the Shift Schedule column is blank for every row. The Late Arrival and Absence packs are
+  structurally empty until a shift template exists and is assigned.
+- The owner login is not linked to a roster PIN (`profiles.employee_pin` is null), so `/dashboard/me`
+  shows "not linked yet" by design.
+- `secure_rls.sql` remains unapplied (blocker B1 in section 20).

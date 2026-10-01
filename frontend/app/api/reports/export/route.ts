@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/server';
 import { requireAuthUser, getErrorMessage } from '@/lib/auth-guard';
 import { formatPunchTime, formatTotalHours, calculateMinutes } from '@/lib/utils/formatTime';
+import { fetchAllPages, loadDailyReportRows } from '@/lib/reports/source';
 import * as XLSX from 'xlsx';
-import { DailyAttendanceSummary } from '@/types';
+import type { DailyAttendanceSummary } from '@/types';
 import { format } from 'date-fns';
 
 function generateDateRange(start: string, end: string): string[] {
@@ -33,52 +34,26 @@ export async function GET(request: Request) {
             return NextResponse.json({ error: 'Missing dates' }, { status: 400 });
         }
 
-        // 1. Fetch attendance records
-        let query = supabase
-            .from('daily_attendance_summary')
-            .select('*')
-            .gte('punch_date', startDate)
-            .lte('punch_date', endDate)
-            .order('punch_date', { ascending: true })
-            .order('pin', { ascending: true });
-
-        if (pin && pin !== 'all') {
-            query = query.eq('pin', pin);
-        }
-        if (branch && branch !== 'all') {
-            query = query.eq('branch', branch);
-        }
-
-        const [attRes, empRes] = await Promise.all([
-            query,
-            supabase.from('employees').select('*')
+        // 1. Attendance rows for the range: engine figures overlaid on the legacy
+        // punch log, paged so a long range is never truncated at the row cap.
+        const [attendanceResult, allEmployees] = await Promise.all([
+            loadDailyReportRows(supabase, { start: startDate, end: endDate, pin, branch }),
+            fetchAllPages<{ pin: string; full_name: string; branch?: string; department?: string }>(
+                (from, to) =>
+                    supabase
+                        .from('employees')
+                        .select('*')
+                        .order('pin', { ascending: true })
+                        .range(from, to),
+            ),
         ]);
 
-        if (attRes.error) return NextResponse.json({ error: attRes.error.message }, { status: 500 });
-
-        const rawAttendance = (attRes.data || []) as DailyAttendanceSummary[];
-        const allEmployees = (empRes.data || []) as Array<{ pin: string; full_name: string; branch?: string; department?: string }>;
-
-        // 2. Merge multi-punch records per employee per date
+        // `loadDailyReportRows` already collapses multi-punch days to one row per
+        // employee per date, so the grid below has a single source of truth.
         const attendanceByEmpDate = new Map<string, DailyAttendanceSummary>();
-        rawAttendance.forEach((row) => {
-            const key = `${row.pin}_${row.punch_date}`;
-            if (!attendanceByEmpDate.has(key)) {
-                attendanceByEmpDate.set(key, { ...row });
-            } else {
-                const existing = attendanceByEmpDate.get(key)!;
-                if (row.check_in && (!existing.check_in || new Date(row.check_in) < new Date(existing.check_in))) {
-                    existing.check_in = row.check_in;
-                }
-                if (row.check_out && (!existing.check_out || new Date(row.check_out) > new Date(existing.check_out))) {
-                    existing.check_out = row.check_out;
-                }
-                existing.total_punches = (existing.total_punches || 1) + (row.total_punches || 1);
-                if (!existing.branch && row.branch) existing.branch = row.branch;
-                if (!existing.device_name && row.device_name) existing.device_name = row.device_name;
-                if (!existing.full_name && row.full_name) existing.full_name = row.full_name;
-            }
-        });
+        for (const row of attendanceResult.rows) {
+            attendanceByEmpDate.set(`${row.pin}_${row.punch_date}`, row);
+        }
 
         // 3. Build list of targeted employees
         const empMap = new Map<string, { pin: string; name: string; department: string; branch: string; defaultShiftStart?: string; defaultShiftEnd?: string }>();
@@ -95,7 +70,7 @@ export async function GET(request: Request) {
         });
 
         // Add any employees found in attendance logs not in employees table
-        rawAttendance.forEach(r => {
+        attendanceResult.rows.forEach((r) => {
             if (!empMap.has(r.pin)) {
                 empMap.set(r.pin, {
                     pin: r.pin,

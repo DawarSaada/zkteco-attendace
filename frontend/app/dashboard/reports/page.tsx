@@ -18,6 +18,7 @@ import {
   Edit3,
   FileSpreadsheet,
   FileText,
+  Info,
   ListChecks,
   RefreshCw,
   Timer,
@@ -200,6 +201,12 @@ export default function ReportsPage() {
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [reports, setReports] = useState<DailyAttendanceSummary[]>([]);
+  /**
+   * Rows in the current range the engine has not recomputed yet. They come from
+   * the punch log, which has no late/overtime figures — so the page says so
+   * rather than letting those cells look like a genuine zero.
+   */
+  const [derivedRows, setDerivedRows] = useState(0);
 
   const [sortKey, setSortKey] = useState<string>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
@@ -263,12 +270,15 @@ export default function ReportsPage() {
       const data = await res.json();
       if (res.ok) {
         setReports(Array.isArray(data) ? data : []);
+        setDerivedRows(Number(res.headers.get('X-Report-Derived-Rows') ?? 0) || 0);
       } else {
         setReports([]);
+        setDerivedRows(0);
         setErrorMsg(data.error || t('report_error_fetch'));
       }
     } catch {
       setReports([]);
+      setDerivedRows(0);
       setErrorMsg(t('report_error_fetch'));
     } finally {
       setIsLoading(false);
@@ -785,6 +795,13 @@ export default function ReportsPage() {
           tone={missingCheckouts > 0 ? 'warning' : 'success'}
         />
       </div>
+
+      {derivedRows > 0 && (
+        <p className="flex items-start gap-2.5 rounded-xl border border-warning-line bg-warning-soft px-4 py-3 text-xs font-medium text-warning">
+          <Info size={15} className="mt-0.5 shrink-0" aria-hidden="true" />
+          {t('report_source_note')}
+        </p>
+      )}
 
       {dailyHours.length > 1 && (
         <Card className="sheen-top space-y-4 p-5">

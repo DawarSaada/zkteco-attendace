@@ -3,11 +3,11 @@ import { addDays, diffDays } from '@/lib/attendance/engine';
 import {
   MAX_RANGE_DAYS,
   buildReport,
-  type AttendanceDayInput,
   type EmployeeInput,
   type ReportResult,
   type ReportType,
 } from './engine';
+import { fetchAllPages, loadReportDays } from './source';
 
 const REPORT_TYPE_VALUES: ReportType[] = [
   'timecard',
@@ -32,6 +32,15 @@ export interface RunReportOptions {
 
 export interface RunReportResult extends ReportResult {
   requestedTo: string;
+  /** Days whose figures come from the engine's computed table. */
+  engineDays: number;
+  /**
+   * Days taken from the legacy punch-log view because the engine has not
+   * computed them. Their late/overtime figures are only as good as the shift
+   * assignment behind them (see `legacyRowToDay`), so they are reported
+   * separately instead of being blended into the totals silently.
+   */
+  derivedDays: number;
 }
 
 /**
@@ -52,34 +61,33 @@ export async function runReport(
   const truncated = requestedDays > MAX_RANGE_DAYS;
   const to = truncated ? addDays(from, MAX_RANGE_DAYS - 1) : requestedTo;
 
-  let query = supabase
-    .from('attendance_days')
-    .select(
-      'pin, work_date, status, expected_minutes, worked_minutes, late_minutes, early_leave_minutes, overtime_minutes, punch_count, first_in, last_out, shift_id',
-    )
-    .gte('work_date', from)
-    .lte('work_date', to)
-    .order('work_date', { ascending: true })
-    .order('pin', { ascending: true });
-
-  if (pin && pin !== 'all') query = query.eq('pin', pin);
-
-  const [daysResult, employeesResult] = await Promise.all([
-    query,
-    supabase.from('employees').select('pin, full_name, department, branch'),
+  // Reads the engine overlaid on the legacy view, paged past PostgREST's row
+  // cap: a pack must never be narrower than the range it was asked for.
+  const [dayResult, employeesResult] = await Promise.all([
+    loadReportDays(supabase, { start: from, end: to, pin }),
+    fetchAllPages<EmployeeInput>((skip, limit) =>
+      supabase
+        .from('employees')
+        .select('pin, full_name, department, branch')
+        .order('pin', { ascending: true })
+        .range(skip, limit),
+    ),
   ]);
 
-  if (daysResult.error) throw new Error(daysResult.error.message);
-
-  const employees = (employeesResult.data ?? []) as EmployeeInput[];
+  const employees = employeesResult;
   const employeeMap = new Map(employees.map((employee) => [employee.pin, employee]));
 
-  let days = (daysResult.data ?? []) as AttendanceDayInput[];
+  let days = dayResult.days;
 
   if (branch && branch !== 'all') {
     days = days.filter((day) => employeeMap.get(day.pin)?.branch === branch);
   }
 
   const report = buildReport(type, { from, to, days, employees, truncated });
-  return { ...report, requestedTo };
+  return {
+    ...report,
+    requestedTo,
+    engineDays: dayResult.engineDays,
+    derivedDays: dayResult.derivedDays,
+  };
 }

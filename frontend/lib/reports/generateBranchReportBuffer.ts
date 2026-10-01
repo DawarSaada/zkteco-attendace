@@ -2,7 +2,8 @@ import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { createAdminClient } from '@/lib/supabase/server';
-import { DailyAttendanceSummary } from '@/types';
+import { fetchAllPages, loadDailyReportRows } from '@/lib/reports/source';
+import type { DailyAttendanceSummary } from '@/types';
 import { formatPunchTime, formatTotalHours, calculateMinutes } from '@/lib/utils/formatTime';
 import { format } from 'date-fns';
 
@@ -39,48 +40,29 @@ export async function generateBranchReportBuffer(
 ): Promise<GeneratedReportResult> {
     const supabase = createAdminClient();
 
-    let query = supabase
-        .from('daily_attendance_summary')
-        .select('*')
-        .gte('punch_date', startDate)
-        .lte('punch_date', endDate)
-        .order('punch_date', { ascending: true })
-        .order('pin', { ascending: true });
+    const [attendanceResult, allEmployees] = await Promise.all([
+        // Engine figures overlaid on the legacy punch log, paged past the row cap:
+        // an emailed report used to silently stop at 1000 rows.
+        loadDailyReportRows(supabase, { start: startDate, end: endDate, branch }),
+        fetchAllPages<{ pin: string; full_name: string; branch?: string; department?: string }>(
+            (from, to) => {
+                let empQuery = supabase
+                    .from('employees')
+                    .select('*')
+                    .order('pin', { ascending: true });
+                if (branch && branch !== 'all') {
+                    empQuery = empQuery.eq('branch', branch);
+                }
+                return empQuery.range(from, to);
+            },
+        ),
+    ]);
 
-    if (branch && branch !== 'all') {
-        query = query.eq('branch', branch);
-    }
-
-    let empQuery = supabase.from('employees').select('*');
-    if (branch && branch !== 'all') {
-        empQuery = empQuery.eq('branch', branch);
-    }
-
-    const [attRes, empRes] = await Promise.all([query, empQuery]);
-
-    const rawAttendance = (attRes.data || []) as DailyAttendanceSummary[];
-    const allEmployees = (empRes.data || []) as Array<{ pin: string; full_name: string; branch?: string; department?: string }>;
-
-    // Merge multi-punch records per employee per date
+    // One row per employee per date already, so this is a lookup, not a merge.
     const attendanceByEmpDate = new Map<string, DailyAttendanceSummary>();
-    rawAttendance.forEach((row) => {
-        const key = `${row.pin}_${row.punch_date}`;
-        if (!attendanceByEmpDate.has(key)) {
-            attendanceByEmpDate.set(key, { ...row });
-        } else {
-            const existing = attendanceByEmpDate.get(key)!;
-            if (row.check_in && (!existing.check_in || new Date(row.check_in) < new Date(existing.check_in))) {
-                existing.check_in = row.check_in;
-            }
-            if (row.check_out && (!existing.check_out || new Date(row.check_out) > new Date(existing.check_out))) {
-                existing.check_out = row.check_out;
-            }
-            existing.total_punches = (existing.total_punches || 1) + (row.total_punches || 1);
-            if (!existing.branch && row.branch) existing.branch = row.branch;
-            if (!existing.device_name && row.device_name) existing.device_name = row.device_name;
-            if (!existing.full_name && row.full_name) existing.full_name = row.full_name;
-        }
-    });
+    for (const row of attendanceResult.rows) {
+        attendanceByEmpDate.set(`${row.pin}_${row.punch_date}`, row);
+    }
 
     const empMap = new Map<string, { pin: string; name: string; department: string; branch: string }>();
     allEmployees.forEach((e) => {
@@ -92,7 +74,7 @@ export async function generateBranchReportBuffer(
         });
     });
 
-    rawAttendance.forEach((r) => {
+    attendanceResult.rows.forEach((r) => {
         if (!empMap.has(r.pin)) {
             empMap.set(r.pin, {
                 pin: r.pin,
